@@ -205,9 +205,33 @@ class AlertProcessor:
 
         Looks up IOCs in configured threat intel providers.
         """
-        # TODO: Implement threat intel enrichment in Phase 3
-        # For now, return alert as-is
-        logger.debug("Threat intel enrichment not yet implemented")
+        from .enrichment import EnrichmentService
+
+        try:
+            enrichment_service = EnrichmentService(self.settings, self.db)
+            enrichment_result = await enrichment_service.enrich_alert(alert)
+            await enrichment_service.close()
+
+            # Store enrichment data in alert
+            alert.enrichment = enrichment_result.to_dict()
+
+            logger.info(
+                "Alert enriched",
+                alert_id=alert.id,
+                is_malicious=enrichment_result.is_malicious,
+                severity=enrichment_result.highest_severity,
+                providers=list(enrichment_result.results.keys()),
+            )
+
+        except Exception as e:
+            logger.warning(
+                "Enrichment failed, continuing without",
+                alert_id=alert.id,
+                error=str(e),
+            )
+            # Don't fail the whole pipeline if enrichment fails
+            alert.enrichment = None
+
         return alert
 
     async def _analyze_alert(self, alert: Alert) -> Alert:
