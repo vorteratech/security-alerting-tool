@@ -9,6 +9,9 @@ A modular security alerting application for MSPs that:
 4. Creates tickets in PSA platforms
 5. Posts alerts to chat platforms with action buttons
 
+**Deployment**: Single-tenant (for your MSP and clients)
+**Compliance**: Government-ready (secure API key storage)
+
 ---
 
 ## Architecture
@@ -27,8 +30,8 @@ A modular security alerting application for MSPs that:
 │  │ └──────────┘ │     │  │         │   │  Intel) │   │   Gemini)     │  │  │
 │  │              │     │  └─────────┘   └─────────┘   └───────────────┘  │  │
 │  │ ┌──────────┐ │     │       │             │               │           │  │
-│  │ │CrowdStrike│ │     │       │      ┌─────┴─────┐         │           │  │
-│  │ │ (future) │ │     │       │      │VirusTotal │         │           │  │
+│  │ │CrowdStrike│─┼────▶│      │      ┌─────┴─────┐         │           │  │
+│  │ │  Falcon  │ │     │       │      │VirusTotal │         │           │  │
 │  │ └──────────┘ │     │       │      │AlienVault │         │           │  │
 │  │              │     │       │      └───────────┘         │           │  │
 │  └──────────────┘     │       └─────────────────────────────┘           │  │
@@ -40,7 +43,7 @@ A modular security alerting application for MSPs that:
 │                       │                                                   │  │
 │                       │  ┌─────────────┐          ┌─────────────────┐    │  │
 │                       │  │   SuperOps  │          │  Microsoft Teams │    │  │
-│                       │  │   (Ticket)  │          │  (Alert + Buttons│    │  │
+│                       │  │   (Ticket)  │          │  (Bot + Buttons) │    │  │
 │                       │  └─────────────┘          └─────────────────┘    │  │
 │                       │                                                   │  │
 │                       │  ┌─────────────┐          ┌─────────────────┐    │  │
@@ -54,14 +57,65 @@ A modular security alerting application for MSPs that:
 │                                                                              │
 │  ┌─────────────────┐    ┌─────────────────────────────────────────────┐    │
 │  │   config.yaml   │    │              SQLite Database                 │    │
-│  │  (base settings)│    │  - API Keys (encrypted)                     │    │
+│  │  (base settings)│    │  - API Keys (AES-256-GCM encrypted)         │    │
 │  │  - Server port  │    │  - Integration settings                     │    │
-│  │  - Log level    │    │  - Alert history                            │    │
-│  │  - DB path      │    │  - Action audit log                         │    │
+│  │  - Log level    │    │  - Action audit log (compliance)            │    │
+│  │  - Enabled      │    │                                             │    │
+│  │    integrations │    │  * No alert storage - history in PSA        │    │
 │  └─────────────────┘    └─────────────────────────────────────────────┘    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Security & Compliance
+
+### API Key Encryption (Government-Ready)
+
+For storing sensitive credentials with government clients in mind:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ENCRYPTION ARCHITECTURE                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Master Key (Environment Variable or File)                       │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  PBKDF2 Key Derivation (100,000 iterations)             │    │
+│  │  - Unique salt per encrypted value                       │    │
+│  │  - SHA-256 hash function                                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  AES-256-GCM Encryption                                  │    │
+│  │  - Authenticated encryption (integrity + confidentiality)│    │
+│  │  - Unique nonce per encryption                           │    │
+│  │  - 128-bit authentication tag                            │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│       │                                                          │
+│       ▼                                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Stored Format: base64(salt + nonce + tag + ciphertext) │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  Additional Security Measures:                                   │
+│  - Master key never stored in database                          │
+│  - Audit logging of all key access                              │
+│  - Key rotation support                                         │
+│  - Memory clearing after use                                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Compliance Features
+- **Audit Logging**: All actions (resolve, contain, escalate) logged with timestamp, user, and result
+- **Secure Transport**: HTTPS required for all webhook endpoints
+- **Webhook Verification**: HMAC signature verification for S1 and CrowdStrike webhooks
+- **No PII Storage**: Alerts processed in-memory, not stored (history in PSA)
 
 ---
 
@@ -81,7 +135,11 @@ security-alerting-tool/
 │   ├── database/
 │   │   ├── __init__.py
 │   │   ├── connection.py           # Database connection management
-│   │   └── models.py               # SQLAlchemy models
+│   │   └── models.py               # SQLAlchemy models (settings + audit)
+│   │
+│   ├── security/
+│   │   ├── __init__.py
+│   │   └── encryption.py           # AES-256-GCM encryption for API keys
 │   │
 │   ├── adapters/                   # Plugin architecture for integrations
 │   │   ├── __init__.py
@@ -89,13 +147,14 @@ security-alerting-tool/
 │   │   ├── edr/                    # EDR platform adapters
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py             # Abstract base class
-│   │   │   └── sentinelone.py      # SentinelOne implementation
+│   │   │   ├── sentinelone.py      # SentinelOne implementation
+│   │   │   └── crowdstrike.py      # CrowdStrike Falcon implementation
 │   │   │
 │   │   ├── ai/                     # AI provider adapters
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py             # Abstract base class
 │   │   │   ├── claude.py           # Anthropic Claude
-│   │   │   ├── openai.py           # OpenAI GPT
+│   │   │   ├── openai_adapter.py   # OpenAI GPT
 │   │   │   └── gemini.py           # Google Gemini
 │   │   │
 │   │   ├── threat_intel/           # Threat intelligence adapters
@@ -112,7 +171,7 @@ security-alerting-tool/
 │   │   └── chat/                   # Chat platform adapters
 │   │       ├── __init__.py
 │   │       ├── base.py             # Abstract base class
-│   │       └── teams.py            # Microsoft Teams (Adaptive Cards)
+│   │       └── teams.py            # Microsoft Teams Bot (Adaptive Cards)
 │   │
 │   ├── services/                   # Business logic
 │   │   ├── __init__.py
@@ -122,7 +181,7 @@ security-alerting-tool/
 │   │
 │   └── api/                        # API endpoints
 │       ├── __init__.py
-│       ├── webhooks.py             # Inbound webhook endpoints
+│       ├── webhooks.py             # Inbound webhook endpoints (S1 + CS)
 │       ├── actions.py              # Action button callbacks
 │       └── settings_api.py         # Settings management API
 │
@@ -131,6 +190,7 @@ security-alerting-tool/
 │   ├── conftest.py                 # Pytest fixtures
 │   ├── test_webhooks.py
 │   ├── test_enrichment.py
+│   ├── test_encryption.py
 │   └── adapters/
 │       └── ...
 │
@@ -146,12 +206,13 @@ security-alerting-tool/
 
 ## Data Models
 
-### Alert (Normalized)
+### Alert (In-Memory - Not Stored)
 
 ```python
+@dataclass
 class Alert:
-    id: str                         # Unique identifier
-    source: str                     # EDR source (e.g., "sentinelone")
+    id: str                         # Unique identifier (UUID)
+    source: str                     # EDR source: "sentinelone" | "crowdstrike"
     source_alert_id: str            # Original alert ID from EDR
     timestamp: datetime             # When alert occurred
     severity: str                   # critical, high, medium, low, info
@@ -161,6 +222,10 @@ class Alert:
     endpoint_ip: str
     endpoint_os: str
     endpoint_user: str
+
+    # Site/Group info (for multi-client MSP)
+    site_name: str                  # S1 Site or CS Host Group
+    client_name: str                # Derived client name
 
     # Threat info
     threat_name: str
@@ -178,28 +243,46 @@ class Alert:
     remote_port: int
 
     # Enrichment data (populated after processing)
-    enrichment: dict                # VirusTotal, AlienVault results
-    ai_analysis: dict               # AI-generated analysis
+    enrichment: EnrichmentResult    # VirusTotal, AlienVault results
+    ai_analysis: AIAnalysisResult   # AI-generated analysis
 
-    # Status tracking
-    status: str                     # new, processing, ticketed, resolved
-    ticket_id: str                  # PSA ticket ID
-    created_at: datetime
-    updated_at: datetime
+    # Output tracking (not persisted)
+    ticket_id: str                  # PSA ticket ID (returned from SuperOps)
+    teams_message_id: str           # Teams message ID (for updates)
 ```
 
 ### Integration Settings (Database)
 
 ```python
-class IntegrationSetting:
-    id: int
+class IntegrationSetting(Base):
+    __tablename__ = "integration_settings"
+
+    id: int                         # Primary key
     integration_type: str           # edr, ai, threat_intel, psa, chat
-    provider: str                   # sentinelone, claude, virustotal, etc.
-    enabled: bool
-    config: dict                    # Provider-specific configuration
-    api_key_encrypted: str          # Encrypted API key
+    provider: str                   # sentinelone, crowdstrike, claude, etc.
+    enabled: bool                   # Is this integration active?
+    is_primary: bool                # Primary provider for this type?
+    config_json: str                # Provider-specific config (JSON)
+    api_key_encrypted: str          # AES-256-GCM encrypted API key
     created_at: datetime
     updated_at: datetime
+```
+
+### Audit Log (Database - Compliance)
+
+```python
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: int                         # Primary key
+    timestamp: datetime             # When action occurred
+    action_type: str                # resolve, contain, escalate, config_change
+    alert_source: str               # sentinelone, crowdstrike
+    alert_id: str                   # Original alert ID
+    hostname: str                   # Affected endpoint
+    performed_by: str               # Teams user who clicked button
+    result: str                     # success, failure
+    details: str                    # Additional context (JSON)
 ```
 
 ---
@@ -209,46 +292,45 @@ class IntegrationSetting:
 ### Phase 1: Foundation (Core Infrastructure)
 1. Project setup (dependencies, structure)
 2. Configuration management (YAML + environment variables)
-3. Database setup (SQLite with SQLAlchemy)
-4. FastAPI application skeleton
-5. Logging infrastructure
-6. Base adapter classes (abstract interfaces)
+3. Database setup (SQLite with SQLAlchemy) - settings & audit only
+4. **AES-256-GCM encryption module** for API keys
+5. FastAPI application skeleton
+6. Logging infrastructure
+7. Base adapter classes (abstract interfaces)
 
 ### Phase 2: EDR Integration
-1. SentinelOne webhook endpoint
-2. S1 payload parsing and normalization
-3. Webhook signature verification (security)
-4. Alert storage in database
+1. **SentinelOne** webhook endpoint + payload parsing
+2. **CrowdStrike Falcon** webhook endpoint + payload parsing
+3. Alert normalization (common format from both EDRs)
+4. Webhook signature verification (HMAC)
 
 ### Phase 3: Threat Intelligence Enrichment
-1. VirusTotal adapter (hash lookup)
-2. AlienVault OTX adapter (IP/domain/hash lookup)
+1. VirusTotal adapter (hash/IP/domain lookup)
+2. AlienVault OTX adapter (hash/IP/domain lookup)
 3. Enrichment service (orchestrates lookups)
-4. Rate limiting for API calls
+4. Rate limiting and caching for API calls
 
 ### Phase 4: AI Analysis
-1. Claude adapter
-2. OpenAI adapter
-3. Gemini adapter
-4. Analysis prompt engineering
-5. AI service with provider selection
+1. Claude adapter (Anthropic)
+2. OpenAI adapter (GPT-4)
+3. Gemini adapter (Google)
+4. Analysis prompt engineering (security-focused)
+5. AI service with configurable provider selection
 
 ### Phase 5: Outbound Integrations
 1. SuperOps ticket creation adapter
-2. Microsoft Teams adapter (Adaptive Cards with buttons)
-3. Action button callback handling
-4. Alert formatting service
+2. **Microsoft Teams Bot** (Adaptive Cards with action buttons)
+3. Alert formatting service (pretty output for techs)
 
 ### Phase 6: Actions & Automation
-1. Action endpoint for button callbacks
-2. S1 API integration for:
-   - Resolve/clear alert
-   - Network containment
-3. Escalation workflow
-4. Audit logging for actions
+1. Action endpoint for Teams button callbacks
+2. S1 API integration: resolve alert, network containment
+3. CrowdStrike API integration: resolve alert, network containment
+4. Escalation workflow (update ticket priority, notify channel)
+5. **Audit logging** for all actions
 
 ### Phase 7: Polish & Deployment
-1. Settings management API
+1. Settings management API (CRUD for integrations)
 2. Docker configuration
 3. Health check endpoints
 4. Documentation
@@ -261,10 +343,10 @@ class IntegrationSetting:
 ### Webhooks (Inbound)
 ```
 POST /webhooks/sentinelone          # S1 alert webhook
-POST /webhooks/crowdstrike          # Future: CrowdStrike
+POST /webhooks/crowdstrike          # CrowdStrike Falcon webhook
 ```
 
-### Actions (Button Callbacks)
+### Actions (Teams Bot Callbacks)
 ```
 POST /actions/resolve               # Resolve alert in EDR
 POST /actions/contain               # Network contain endpoint
@@ -273,62 +355,81 @@ POST /actions/escalate              # Escalate to senior engineer
 
 ### Settings Management
 ```
-GET  /api/settings                  # List all settings
-GET  /api/settings/{integration}    # Get specific integration settings
-PUT  /api/settings/{integration}    # Update integration settings
-POST /api/settings/{integration}/test  # Test integration connectivity
+GET  /api/settings                  # List all integration settings
+GET  /api/settings/{type}/{provider}  # Get specific integration
+PUT  /api/settings/{type}/{provider}  # Update integration settings
+DELETE /api/settings/{type}/{provider} # Remove integration
+POST /api/settings/{type}/{provider}/test  # Test connectivity
 ```
 
-### Health & Status
+### Health & Audit
 ```
-GET  /health                        # Health check
-GET  /api/alerts                    # List recent alerts
-GET  /api/alerts/{id}               # Get specific alert details
+GET  /health                        # Health check (for monitoring)
+GET  /api/audit                     # List audit log (with filters)
 ```
 
 ---
 
-## Teams Adaptive Card Example
+## Teams Bot with Adaptive Cards
 
-The Teams alert will include action buttons:
+The Teams Bot will post alerts as Adaptive Cards with action buttons:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  🚨 SECURITY ALERT - HIGH SEVERITY                              │
+│  🚨 SECURITY ALERT - HIGH SEVERITY                [SentinelOne] │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Endpoint: WORKSTATION-PC01                                      │
+│  Client: Acme Corporation                                        │
+│  Endpoint: WORKSTATION-PC01 (192.168.1.50)                      │
 │  User: jsmith                                                    │
+│  OS: Windows 11 Pro                                              │
+│                                                                  │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                  │
 │  Threat: Cobalt Strike Beacon                                    │
 │  Classification: Malware - Command & Control                     │
+│  File: C:\Users\jsmith\Downloads\update.exe                     │
+│  Hash: a1b2c3d4e5f6...                                          │
 │                                                                  │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
 │  📋 AI Analysis:                                                 │
 │  This detection indicates a Cobalt Strike beacon, commonly       │
 │  used in targeted attacks. The beacon was attempting to          │
-│  establish C2 communication. Immediate containment recommended.  │
+│  establish C2 communication to 185.x.x.x. This is consistent    │
+│  with initial access techniques. Immediate containment is        │
+│  strongly recommended.                                           │
 │                                                                  │
 │  🔍 Threat Intel:                                                │
-│  • VirusTotal: 45/70 detections                                  │
-│  • AlienVault: Associated with APT29                             │
+│  • VirusTotal: 45/70 engines detected                           │
+│  • AlienVault: Associated with APT29, known IOCs match          │
 │                                                                  │
 │  📝 Recommended Actions:                                         │
-│  1. Immediately isolate the endpoint                             │
-│  2. Preserve forensic evidence                                   │
-│  3. Check for lateral movement                                   │
-│  4. Reset user credentials                                       │
+│  1. Immediately isolate the endpoint from network                │
+│  2. Preserve forensic evidence (memory dump, disk image)        │
+│  3. Check for lateral movement to other systems                  │
+│  4. Reset user credentials for jsmith                            │
+│  5. Review email logs for initial infection vector               │
 │                                                                  │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
-│  Ticket: SUP-12345                                               │
+│  📄 Ticket: SUP-12345 (Created in SuperOps)                     │
 │                                                                  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ ✅ Resolve  │  │ 🔒 Contain  │  │ ⬆️ Escalate to Senior   │  │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐  │
+│  │ ✅ Resolve  │  │ 🔒 Contain   │  │ ⬆️ Escalate to Senior  │  │
+│  │   Alert    │  │   Machine    │  │      Engineer          │  │
+│  └─────────────┘  └──────────────┘  └────────────────────────┘  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Button Actions
+
+| Button | Action |
+|--------|--------|
+| **Resolve Alert** | Marks alert as resolved in S1/CS, updates ticket status, logs action |
+| **Contain Machine** | Triggers network isolation via S1/CS API, updates ticket, logs action |
+| **Escalate to Senior** | Updates ticket priority to critical, posts to escalation channel |
 
 ---
 
@@ -343,58 +444,95 @@ server:
 
 logging:
   level: "INFO"
-  format: "json"
+  format: "json"  # json for production, text for development
 
 database:
-  path: "./data/alerts.db"
+  path: "./data/settings.db"
 
 security:
-  webhook_secret_header: "X-Webhook-Secret"
-  encrypt_api_keys: true
+  # Webhook signature verification
+  verify_webhooks: true
+
+  # API key encryption (key from environment)
+  encryption_key_env: "MASTER_ENCRYPTION_KEY"
+
+# Default providers (can be changed via API)
+defaults:
+  ai_provider: "claude"
+  threat_intel_providers:
+    - "virustotal"
+    - "alienvault"
 ```
 
 ### Environment Variables (.env)
 ```bash
-# Encryption key for API keys in database
-ENCRYPTION_KEY=your-32-byte-encryption-key
+# CRITICAL: 32-byte key for AES-256 encryption
+# Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+MASTER_ENCRYPTION_KEY=your-64-char-hex-key-here
 
-# Default AI provider
-DEFAULT_AI_PROVIDER=claude
+# Webhook secrets for signature verification
+S1_WEBHOOK_SECRET=your-sentinelone-webhook-secret
+CS_WEBHOOK_SECRET=your-crowdstrike-webhook-secret
 
-# S1 Webhook secret (for signature verification)
-S1_WEBHOOK_SECRET=your-webhook-secret
+# Teams Bot credentials (from Azure Bot registration)
+TEAMS_BOT_APP_ID=your-azure-app-id
+TEAMS_BOT_APP_SECRET=your-azure-app-secret
 ```
 
 ---
 
-## Questions for You
+## Dependencies
 
-Before I start implementing, please confirm or adjust:
+```
+# requirements.txt
 
-1. **Alert History**: Should we store all alerts in the database for history/reporting, or just process and forward them?
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
 
-2. **Multiple Tenants**: Will this serve multiple clients/tenants, or is it single-tenant for your MSP?
+# Database
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
 
-3. **S1 API Access**: Do you have API access to SentinelOne for the action buttons (resolve, contain)? This requires Management Console API credentials.
+# HTTP client
+httpx>=0.25.0
+aiohttp>=3.9.0
 
-4. **Teams Setup**: Do you have a Teams webhook URL, or will you need to set up a Teams Bot for the action buttons to work?
+# Security
+cryptography>=41.0.0          # AES-256-GCM encryption
+python-jose[cryptography]     # JWT for Teams Bot
 
-5. **Encryption**: For storing API keys, should I use simple encryption (AES) or integrate with a secrets manager?
+# AI Providers
+anthropic>=0.7.0              # Claude
+openai>=1.3.0                 # GPT
+google-generativeai>=0.3.0    # Gemini
+
+# Configuration
+pyyaml>=6.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Teams Bot
+botbuilder-core>=4.14.0
+botbuilder-schema>=4.14.0
+
+# Utilities
+python-dotenv>=1.0.0
+structlog>=23.2.0             # Structured logging
+```
 
 ---
 
-## Next Steps
+## Ready to Implement
 
-Once you approve this plan (with any modifications), I'll implement in this order:
+With CrowdStrike Falcon added to initial scope and the security/compliance requirements clarified, here's the final implementation order:
 
-1. ✅ Set up project structure and dependencies
-2. ✅ Implement configuration and database
-3. ✅ Create base adapter interfaces
-4. ✅ Build SentinelOne webhook handler
-5. ✅ Add threat intel enrichment
-6. ✅ Implement AI analysis
-7. ✅ Add SuperOps and Teams integrations
-8. ✅ Add action buttons and callbacks
-9. ✅ Dockerize and document
+1. **Phase 1**: Foundation + AES-256-GCM encryption
+2. **Phase 2**: Both S1 and CrowdStrike webhook handlers
+3. **Phase 3**: VirusTotal + AlienVault enrichment
+4. **Phase 4**: Claude, OpenAI, Gemini AI adapters
+5. **Phase 5**: SuperOps + Teams Bot
+6. **Phase 6**: Action buttons + audit logging
+7. **Phase 7**: Docker + documentation
 
-Let me know your thoughts!
+**Shall I start implementing Phase 1?**
