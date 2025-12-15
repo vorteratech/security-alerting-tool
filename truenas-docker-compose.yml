@@ -1,0 +1,81 @@
+# Security Alerting Tool - TrueNAS SCALE Deployment
+#
+# For TrueNAS SCALE Custom App deployment
+#
+# Instructions:
+# 1. Go to Apps > Discover Apps > Custom App
+# 2. Use this docker-compose configuration
+# 3. Or deploy via Portainer/Dockge if installed
+#
+# Storage paths assume TrueNAS dataset mounted at /mnt/pool/appdata
+
+version: '3.8'
+
+services:
+  security-alerting:
+    image: ghcr.io/vorteratech/security-alerting-tool:latest
+    # Or build locally:
+    # build:
+    #   context: /mnt/pool/appdata/security-alerting-tool
+    #   dockerfile: Dockerfile
+    container_name: security-alerting-tool
+    hostname: security-alerting
+    restart: unless-stopped
+
+    # Network - use bridge or host depending on your setup
+    network_mode: bridge
+    ports:
+      - "8000:8000"
+
+    # Environment variables
+    environment:
+      # REQUIRED: Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+
+      # EDR Webhook Secrets
+      - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
+      - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
+
+      # Teams Bot (from Azure Bot registration)
+      - TEAMS_BOT_APP_ID=${TEAMS_BOT_APP_ID:-}
+      - TEAMS_BOT_APP_SECRET=${TEAMS_BOT_APP_SECRET:-}
+
+      # Your public URL for Teams action callbacks
+      - ACTION_CALLBACK_URL=${ACTION_CALLBACK_URL:-http://localhost:8000/api/v1/actions}
+
+      # Timezone
+      - TZ=${TZ:-America/New_York}
+
+    # Persistent storage - adjust paths for your TrueNAS pool
+    volumes:
+      # Database storage
+      - /mnt/pool/appdata/security-alerting/data:/app/data
+      # Config file (optional - can edit in container or mount)
+      - /mnt/pool/appdata/security-alerting/config.yaml:/app/config.yaml:ro
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    # Resource limits (adjust based on your TrueNAS resources)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Labels for organization
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "traefik.enable=false"
