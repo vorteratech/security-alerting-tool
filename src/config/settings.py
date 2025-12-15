@@ -75,6 +75,12 @@ class Settings(BaseSettings):
     teams_bot_app_id: Optional[str] = Field(default=None, alias="TEAMS_BOT_APP_ID")
     teams_bot_app_secret: Optional[str] = Field(default=None, alias="TEAMS_BOT_APP_SECRET")
 
+    # Action callback URL (base URL for Teams bot action callbacks)
+    action_callback_base_url: str = Field(
+        default="http://localhost:8000/api/v1/actions",
+        alias="ACTION_CALLBACK_URL"
+    )
+
     # YAML configuration (loaded separately)
     _yaml_config: Optional[YAMLConfig] = None
 

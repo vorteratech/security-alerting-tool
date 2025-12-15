@@ -86,9 +86,11 @@ class Alert:
     # AI analysis (populated by AI service)
     ai_analysis: Optional[dict[str, Any]] = None
 
-    # Output tracking (not persisted)
+    # Output tracking (populated during processing, not persisted)
     ticket_id: Optional[str] = None
-    teams_message_id: Optional[str] = None
+    ticket_url: Optional[str] = None
+    chat_message_id: Optional[str] = None
+    chat_channel_id: Optional[str] = None
 
     def get_iocs(self) -> dict[str, list[str]]:
         """

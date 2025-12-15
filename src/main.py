@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api import webhooks, actions, settings_api
+from .api import webhooks, actions, settings_api, teams_bot
 from .config.logging import get_logger, setup_logging
 from .config.settings import get_settings
 from .database.connection import close_db, init_db
@@ -85,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
     app.include_router(actions.router, prefix="/actions", tags=["Actions"])
     app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
+    app.include_router(teams_bot.router, prefix="/api/v1", tags=["Teams Bot"])
 
     # Global exception handler
     @app.exception_handler(Exception)

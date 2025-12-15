@@ -290,9 +290,44 @@ class AlertProcessor:
 
         Creates a new ticket with alert details.
         """
-        # TODO: Implement PSA integration in Phase 5
-        # For now, return alert as-is
-        logger.debug("PSA integration not yet implemented")
+        from .psa_service import PSAService
+        from .alert_formatter import AlertFormatterService
+
+        try:
+            formatter = AlertFormatterService(
+                action_callback_url=self.settings.action_callback_base_url
+            )
+            psa_service = PSAService(self.settings, self.db, formatter)
+            result = await psa_service.create_ticket_from_alert(
+                alert=alert,
+                ai_analysis=alert.ai_analysis,
+                enrichment=alert.enrichment,
+            )
+            await psa_service.close()
+
+            if result and result.success:
+                alert.ticket_id = result.ticket_id
+                alert.ticket_url = result.ticket_url
+                logger.info(
+                    "Created PSA ticket",
+                    alert_id=alert.id,
+                    ticket_id=result.ticket_id,
+                )
+            else:
+                logger.warning(
+                    "Failed to create PSA ticket",
+                    alert_id=alert.id,
+                    error=result.error if result else "No PSA configured",
+                )
+
+        except Exception as e:
+            logger.warning(
+                "PSA ticket creation failed, continuing without",
+                alert_id=alert.id,
+                error=str(e),
+            )
+            # Don't fail the pipeline if PSA fails
+
         return alert
 
     async def _post_to_chat(self, alert: Alert) -> Alert:
@@ -301,9 +336,46 @@ class AlertProcessor:
 
         Sends formatted alert card with action buttons.
         """
-        # TODO: Implement chat integration in Phase 5
-        # For now, return alert as-is
-        logger.debug("Chat integration not yet implemented")
+        from .notification_service import NotificationService
+        from .alert_formatter import AlertFormatterService
+
+        try:
+            formatter = AlertFormatterService(
+                action_callback_url=self.settings.action_callback_base_url
+            )
+            notification_service = NotificationService(self.settings, self.db, formatter)
+            result = await notification_service.send_alert_notification(
+                alert=alert,
+                ai_analysis=alert.ai_analysis,
+                enrichment=alert.enrichment,
+                ticket_id=alert.ticket_id or "",
+                ticket_url=alert.ticket_url or "",
+            )
+            await notification_service.close()
+
+            if result and result.success:
+                alert.chat_message_id = result.message_id
+                alert.chat_channel_id = result.channel_id
+                logger.info(
+                    "Posted alert to chat",
+                    alert_id=alert.id,
+                    message_id=result.message_id,
+                )
+            else:
+                logger.warning(
+                    "Failed to post alert to chat",
+                    alert_id=alert.id,
+                    error=result.error if result else "No chat configured",
+                )
+
+        except Exception as e:
+            logger.warning(
+                "Chat notification failed, continuing without",
+                alert_id=alert.id,
+                error=str(e),
+            )
+            # Don't fail the pipeline if chat fails
+
         return alert
 
     async def _log_action(
