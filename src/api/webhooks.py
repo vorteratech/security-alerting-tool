@@ -10,11 +10,14 @@ import hashlib
 import hmac
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config.logging import get_logger
 from ..config.settings import Settings, get_settings
+from ..database.connection import get_db_session
+from ..services.alert_processor import AlertProcessor
 
 logger = get_logger(__name__)
 
@@ -63,11 +66,37 @@ def verify_webhook_signature(
     return hmac.compare_digest(expected, signature)
 
 
+async def process_alert_background(
+    source: str,
+    payload: dict[str, Any],
+    settings: Settings,
+    db: AsyncSession,
+) -> None:
+    """
+    Process alert in background task.
+
+    This allows the webhook to return immediately while processing continues.
+    """
+    try:
+        processor = AlertProcessor(settings, db)
+        await processor.process_webhook(source, payload)
+        await processor.close()
+    except Exception as e:
+        logger.error(
+            "Background alert processing failed",
+            source=source,
+            error=str(e),
+            exc_info=e,
+        )
+
+
 @router.post("/sentinelone", response_model=WebhookResponse)
 async def sentinelone_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_webhook_signature: Optional[str] = Header(None, alias="X-Signature"),
     settings: Settings = Depends(get_settings),
+    db: AsyncSession = Depends(get_db_session),
 ) -> WebhookResponse:
     """
     Receive alerts from SentinelOne.
@@ -97,31 +126,42 @@ async def sentinelone_webhook(
         logger.error("Failed to parse SentinelOne webhook payload", error=str(e))
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    alert_id = payload.get("data", {}).get("id", "unknown")
+
     logger.info(
         "Received SentinelOne webhook",
         event_type=payload.get("eventType"),
-        alert_id=payload.get("data", {}).get("id"),
+        alert_id=alert_id,
     )
 
-    # TODO: Process alert through pipeline
-    # 1. Parse and normalize alert
-    # 2. Enrich with threat intel
-    # 3. Analyze with AI
-    # 4. Create ticket
-    # 5. Post to Teams
+    # Process alert - currently synchronous, can be made async with background_tasks
+    try:
+        processor = AlertProcessor(settings, db)
+        alert = await processor.process_webhook("sentinelone", payload)
+        await processor.close()
 
-    return WebhookResponse(
-        status="received",
-        message="SentinelOne alert received and queued for processing",
-        alert_id=payload.get("data", {}).get("id"),
-    )
+        return WebhookResponse(
+            status="processed",
+            message="SentinelOne alert processed successfully",
+            alert_id=alert.source_alert_id if alert else alert_id,
+        )
+    except Exception as e:
+        logger.error("Failed to process SentinelOne alert", error=str(e))
+        # Return success to EDR so it doesn't retry, but log the error
+        return WebhookResponse(
+            status="received",
+            message="Alert received but processing failed",
+            alert_id=alert_id,
+        )
 
 
 @router.post("/crowdstrike", response_model=WebhookResponse)
 async def crowdstrike_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_cs_signature: Optional[str] = Header(None, alias="X-CS-Signature"),
     settings: Settings = Depends(get_settings),
+    db: AsyncSession = Depends(get_db_session),
 ) -> WebhookResponse:
     """
     Receive alerts from CrowdStrike Falcon.
@@ -151,21 +191,30 @@ async def crowdstrike_webhook(
         logger.error("Failed to parse CrowdStrike webhook payload", error=str(e))
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    alert_id = payload.get("body", {}).get("detection_id", "unknown")
+
     logger.info(
         "Received CrowdStrike webhook",
         event_type=payload.get("metadata", {}).get("eventType"),
-        detection_id=payload.get("body", {}).get("detection_id"),
+        detection_id=alert_id,
     )
 
-    # TODO: Process alert through pipeline
-    # 1. Parse and normalize alert
-    # 2. Enrich with threat intel
-    # 3. Analyze with AI
-    # 4. Create ticket
-    # 5. Post to Teams
+    # Process alert
+    try:
+        processor = AlertProcessor(settings, db)
+        alert = await processor.process_webhook("crowdstrike", payload)
+        await processor.close()
 
-    return WebhookResponse(
-        status="received",
-        message="CrowdStrike alert received and queued for processing",
-        alert_id=payload.get("body", {}).get("detection_id"),
-    )
+        return WebhookResponse(
+            status="processed",
+            message="CrowdStrike alert processed successfully",
+            alert_id=alert.source_alert_id if alert else alert_id,
+        )
+    except Exception as e:
+        logger.error("Failed to process CrowdStrike alert", error=str(e))
+        # Return success to EDR so it doesn't retry, but log the error
+        return WebhookResponse(
+            status="received",
+            message="Alert received but processing failed",
+            alert_id=alert_id,
+        )
