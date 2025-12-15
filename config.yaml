@@ -1,0 +1,32 @@
+# Security Alerting Tool - Configuration
+#
+# This file contains non-sensitive configuration settings.
+# Sensitive values (API keys, secrets) should be set via environment variables.
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+
+logging:
+  level: "INFO"
+  # format: "json" for production, "text" for development
+  format: "text"
+
+database:
+  # SQLite database for settings and audit log
+  path: "./data/settings.db"
+
+security:
+  # Verify webhook signatures from EDR platforms
+  verify_webhooks: true
+
+  # Environment variable name containing the master encryption key
+  encryption_key_env: "MASTER_ENCRYPTION_KEY"
+
+# Default providers (can be changed via API at runtime)
+defaults:
+  ai_provider: "claude"
+  threat_intel_providers:
+    - "virustotal"
+    - "alienvault"

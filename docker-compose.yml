@@ -1,0 +1,59 @@
+# Security Alerting Tool - Docker Compose
+#
+# For local development and testing
+
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+    ports:
+      - "8000:8000"
+    environment:
+      # REQUIRED: Set this to a 64-character hex key
+      # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+
+      # Webhook secrets (optional for development)
+      - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
+      - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
+
+      # Teams Bot (optional)
+      - TEAMS_BOT_APP_ID=${TEAMS_BOT_APP_ID:-}
+      - TEAMS_BOT_APP_SECRET=${TEAMS_BOT_APP_SECRET:-}
+    volumes:
+      # Persist database
+      - ./data:/app/data
+      # Mount config for development (optional)
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Development mode with auto-reload
+  app-dev:
+    build:
+      context: .
+      target: production
+    ports:
+      - "8000:8000"
+    environment:
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
+      - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
+    volumes:
+      - ./src:/app/src:ro
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    profiles:
+      - dev
+
+volumes:
+  data:
