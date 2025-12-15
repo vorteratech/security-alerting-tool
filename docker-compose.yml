@@ -1,32 +1,40 @@
 # Security Alerting Tool - Docker Compose
 #
-# For local development and testing
+# Usage:
+#   Production: docker-compose up -d
+#   Development: docker-compose --profile dev up
+#
+# Before starting, create a .env file with your secrets (see .env.example)
 
 version: '3.8'
 
 services:
-  app:
+  security-alerting:
     build:
       context: .
       target: production
+    container_name: security-alerting-tool
     ports:
       - "8000:8000"
     environment:
-      # REQUIRED: Set this to a 64-character hex key
+      # REQUIRED: Master encryption key (64-character hex)
       # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
 
-      # Webhook secrets (optional for development)
+      # EDR Webhook secrets
       - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
       - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
 
-      # Teams Bot (optional)
+      # Teams Bot credentials (from Azure Bot registration)
       - TEAMS_BOT_APP_ID=${TEAMS_BOT_APP_ID:-}
       - TEAMS_BOT_APP_SECRET=${TEAMS_BOT_APP_SECRET:-}
+
+      # Action callback URL (your public-facing URL for Teams buttons)
+      - ACTION_CALLBACK_URL=${ACTION_CALLBACK_URL:-http://localhost:8000/api/v1/actions}
     volumes:
-      # Persist database
+      # Persist SQLite database
       - ./data:/app/data
-      # Mount config for development (optional)
+      # Mount config file
       - ./config.yaml:/app/config.yaml:ro
     restart: unless-stopped
     healthcheck:
@@ -35,25 +43,35 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    networks:
+      - alerting-net
 
-  # Optional: Development mode with auto-reload
-  app-dev:
+  # Development mode with auto-reload
+  security-alerting-dev:
     build:
       context: .
       target: production
+    container_name: security-alerting-dev
     ports:
       - "8000:8000"
     environment:
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
       - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
+      - TEAMS_BOT_APP_ID=${TEAMS_BOT_APP_ID:-}
+      - TEAMS_BOT_APP_SECRET=${TEAMS_BOT_APP_SECRET:-}
+      - ACTION_CALLBACK_URL=${ACTION_CALLBACK_URL:-http://localhost:8000/api/v1/actions}
     volumes:
+      # Mount source for hot reload
       - ./src:/app/src:ro
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     profiles:
       - dev
+    networks:
+      - alerting-net
 
-volumes:
-  data:
+networks:
+  alerting-net:
+    driver: bridge
