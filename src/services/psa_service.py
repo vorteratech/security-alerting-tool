@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..adapters.edr.base import Alert
 from ..adapters.psa import SuperOpsAdapter
-from ..adapters.psa.base import BasePSAAdapter, TicketResult, TicketNote
+from ..adapters.psa.base import BasePSAAdapter, TicketResult, TicketNote, TicketPriority, TicketStatus
 from ..config.logging import get_logger
 from ..config.settings import Settings
 from ..database.models import IntegrationSetting
@@ -280,6 +280,51 @@ class PSAService:
         except Exception as e:
             logger.error(
                 "Failed to close ticket",
+                ticket_id=ticket_id,
+                error=str(e),
+            )
+            return None
+
+    async def update_ticket(
+        self,
+        ticket_id: str,
+        status: Optional[TicketStatus] = None,
+        priority: Optional[TicketPriority] = None,
+        assigned_to: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> Optional[TicketResult]:
+        """
+        Update a ticket.
+
+        Args:
+            ticket_id: The ticket ID.
+            status: Optional new status.
+            priority: Optional new priority.
+            assigned_to: Optional new assignee.
+            provider: Optional specific provider.
+
+        Returns:
+            TicketResult if successful.
+        """
+        if provider:
+            adapter = await self._get_adapter(provider)
+        else:
+            adapter = await self.get_primary_adapter()
+
+        if not adapter:
+            logger.warning("No PSA adapter available for updating ticket")
+            return None
+
+        try:
+            return await adapter.update_ticket(
+                ticket_id=ticket_id,
+                status=status,
+                priority=priority,
+                assigned_to=assigned_to,
+            )
+        except Exception as e:
+            logger.error(
+                "Failed to update ticket",
                 ticket_id=ticket_id,
                 error=str(e),
             )
