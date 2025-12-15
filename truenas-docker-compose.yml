@@ -1,81 +1,174 @@
-# Security Alerting Tool - TrueNAS SCALE Deployment
+# Security Alerting Tool - TrueNAS One-Click Deploy
 #
-# For TrueNAS SCALE Custom App deployment
+# USAGE: Just copy this entire file and paste into TrueNAS or run:
+#   docker-compose -f truenas-docker-compose.yml up -d
 #
-# Instructions:
-# 1. Go to Apps > Discover Apps > Custom App
-# 2. Use this docker-compose configuration
-# 3. Or deploy via Portainer/Dockge if installed
-#
-# Storage paths assume TrueNAS dataset mounted at /mnt/pool/appdata
+# Everything auto-initializes on first run!
 
 version: '3.8'
 
 services:
   security-alerting:
-    image: ghcr.io/vorteratech/security-alerting-tool:latest
-    # Or build locally:
-    # build:
-    #   context: /mnt/pool/appdata/security-alerting-tool
-    #   dockerfile: Dockerfile
+    image: python:3.11-slim
     container_name: security-alerting-tool
-    hostname: security-alerting
     restart: unless-stopped
-
-    # Network - use bridge or host depending on your setup
-    network_mode: bridge
+    working_dir: /app
     ports:
       - "8000:8000"
 
-    # Environment variables
+    # All config inline - edit these values directly
     environment:
-      # REQUIRED: Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
-      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
+      # Auto-generated on first run if empty (check logs for the key)
+      # IMPORTANT: After first run, copy the generated key from logs and paste here
+      # to persist across container recreations
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY:-}
 
-      # EDR Webhook Secrets
+      # EDR Webhook Secrets (optional - get from S1/CS console)
       - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
       - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
 
-      # Teams Bot (from Azure Bot registration)
+      # Teams Bot (optional - get from Azure Bot registration)
       - TEAMS_BOT_APP_ID=${TEAMS_BOT_APP_ID:-}
       - TEAMS_BOT_APP_SECRET=${TEAMS_BOT_APP_SECRET:-}
 
-      # Your public URL for Teams action callbacks
+      # Public URL for Teams callbacks (change to your domain)
       - ACTION_CALLBACK_URL=${ACTION_CALLBACK_URL:-http://localhost:8000/api/v1/actions}
 
-      # Timezone
-      - TZ=${TZ:-America/New_York}
+      - TZ=${TZ:-UTC}
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
 
-    # Persistent storage - adjust paths for your TrueNAS pool
     volumes:
-      # Database storage
-      - /mnt/pool/appdata/security-alerting/data:/app/data
-      # Config file (optional - can edit in container or mount)
-      - /mnt/pool/appdata/security-alerting/config.yaml:/app/config.yaml:ro
+      - security-alerting-data:/app/data
+      - security-alerting-src:/app/src
+      - security-alerting-config:/app/config
 
-    # Health check
+    # This entrypoint handles EVERYTHING: clone, install, configure, run
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+
+        echo "=========================================="
+        echo "Security Alerting Tool - Auto Setup"
+        echo "=========================================="
+
+        # Install system dependencies
+        echo "[1/6] Installing system packages..."
+        apt-get update -qq && apt-get install -y -qq git curl > /dev/null 2>&1
+
+        # Clone or update repo
+        echo "[2/6] Setting up application..."
+        if [ ! -f "/app/src/main.py" ]; then
+          echo "  -> Cloning repository..."
+          git clone --depth 1 https://github.com/vorteratech/security-alerting-tool.git /tmp/repo 2>/dev/null
+          cp -r /tmp/repo/src/* /app/src/ 2>/dev/null || mkdir -p /app/src
+          cp -r /tmp/repo/src /app/
+          cp /tmp/repo/requirements.txt /app/ 2>/dev/null || true
+          cp /tmp/repo/config.yaml /app/config/ 2>/dev/null || true
+          rm -rf /tmp/repo
+        fi
+
+        # Create default config if missing
+        if [ ! -f "/app/config/config.yaml" ]; then
+          echo "  -> Creating default config..."
+          mkdir -p /app/config
+          cat > /app/config/config.yaml << 'CONFIGEOF'
+        server:
+          host: "0.0.0.0"
+          port: 8000
+          debug: false
+        logging:
+          level: INFO
+          format: json
+        database:
+          path: /app/data/settings.db
+        security:
+          verify_webhooks: true
+        defaults:
+          ai_provider: claude
+          threat_intel_providers:
+            - virustotal
+            - alienvault
+        CONFIGEOF
+        fi
+        ln -sf /app/config/config.yaml /app/config.yaml 2>/dev/null || true
+
+        # Generate encryption key if not set
+        echo "[3/6] Checking encryption key..."
+        if [ -z "$$MASTER_ENCRYPTION_KEY" ]; then
+          if [ -f "/app/data/.encryption_key" ]; then
+            export MASTER_ENCRYPTION_KEY=$$(cat /app/data/.encryption_key)
+            echo "  -> Loaded existing key from storage"
+          else
+            export MASTER_ENCRYPTION_KEY=$$(python3 -c "import secrets; print(secrets.token_hex(32))")
+            echo "$$MASTER_ENCRYPTION_KEY" > /app/data/.encryption_key
+            chmod 600 /app/data/.encryption_key
+            echo ""
+            echo "=========================================="
+            echo "NEW ENCRYPTION KEY GENERATED!"
+            echo "=========================================="
+            echo "Key: $$MASTER_ENCRYPTION_KEY"
+            echo ""
+            echo "IMPORTANT: Save this key! Add to your docker-compose:"
+            echo "  MASTER_ENCRYPTION_KEY=$$MASTER_ENCRYPTION_KEY"
+            echo "=========================================="
+            echo ""
+          fi
+        else
+          echo "  -> Using provided key"
+          echo "$$MASTER_ENCRYPTION_KEY" > /app/data/.encryption_key
+          chmod 600 /app/data/.encryption_key
+        fi
+
+        # Install Python dependencies
+        echo "[4/6] Installing Python dependencies..."
+        pip install --quiet --no-cache-dir \
+          fastapi uvicorn[standard] \
+          sqlalchemy[asyncio] aiosqlite \
+          pydantic pydantic-settings \
+          httpx \
+          cryptography \
+          structlog \
+          python-multipart \
+          pyyaml \
+          anthropic openai google-generativeai
+
+        # Create data directory
+        echo "[5/6] Initializing data directory..."
+        mkdir -p /app/data
+
+        # Create minimal src if clone failed
+        if [ ! -f "/app/src/main.py" ]; then
+          echo "  -> Clone failed, creating placeholder..."
+          echo "Repository clone failed. Please check network connectivity." > /app/src/ERROR.txt
+          echo "Visit: https://github.com/vorteratech/security-alerting-tool"
+          exit 1
+        fi
+
+        # Start the application
+        echo "[6/6] Starting application..."
+        echo ""
+        echo "=========================================="
+        echo "Security Alerting Tool is starting!"
+        echo "=========================================="
+        echo "Health check: http://localhost:8000/health"
+        echo "API docs:     http://localhost:8000/docs"
+        echo "=========================================="
+        echo ""
+
+        cd /app
+        exec python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 120s  # Give time for initial setup
 
-    # Resource limits (adjust based on your TrueNAS resources)
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-
-    # Labels for organization
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "traefik.enable=false"
+volumes:
+  security-alerting-data:
+  security-alerting-src:
+  security-alerting-config:
