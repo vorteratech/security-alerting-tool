@@ -240,9 +240,48 @@ class AlertProcessor:
 
         Sends alert data to configured AI provider for analysis.
         """
-        # TODO: Implement AI analysis in Phase 4
-        # For now, return alert as-is
-        logger.debug("AI analysis not yet implemented")
+        from .ai_analyzer import AIAnalyzerService
+
+        try:
+            ai_service = AIAnalyzerService(self.settings, self.db)
+            result = await ai_service.analyze_alert(
+                alert=alert,
+                enrichment_data=alert.enrichment,
+            )
+            await ai_service.close()
+
+            if result:
+                # Store AI analysis in alert
+                alert.ai_analysis = {
+                    "summary": result.summary,
+                    "description": result.description,
+                    "severity_assessment": result.severity_assessment,
+                    "confidence": result.confidence,
+                    "recommended_actions": result.recommended_actions,
+                    "immediate_actions": result.immediate_actions,
+                    "investigation_steps": result.investigation_steps,
+                    "provider": result.provider,
+                    "model": result.model,
+                }
+
+                logger.info(
+                    "AI analysis complete",
+                    alert_id=alert.id,
+                    provider=result.provider,
+                    severity=result.severity_assessment,
+                )
+            else:
+                logger.warning("No AI provider configured, skipping analysis")
+                alert.ai_analysis = None
+
+        except Exception as e:
+            logger.warning(
+                "AI analysis failed, continuing without",
+                alert_id=alert.id,
+                error=str(e),
+            )
+            alert.ai_analysis = None
+
         return alert
 
     async def _create_ticket(self, alert: Alert) -> Alert:
