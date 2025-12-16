@@ -354,7 +354,7 @@ class IntegrationTester:
 
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                     params={"key": api_key},
                     json={
                         "contents": [{"parts": [{"text": "Say 'Connection successful' in exactly 2 words."}]}],
