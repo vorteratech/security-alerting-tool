@@ -298,7 +298,7 @@ class IntegrationTester:
                     "https://api.anthropic.com/v1/messages",
                     headers={
                         "x-api-key": api_key,
-                        "anthropic-version": "2024-01-01",
+                        "anthropic-version": "2023-06-01",
                         "Content-Type": "application/json",
                     },
                     json={
@@ -307,9 +307,21 @@ class IntegrationTester:
                         "messages": [{"role": "user", "content": "Say 'Connection successful' in exactly 2 words."}],
                     },
                 )
-                response.raise_for_status()
-                data = response.json()
 
+                # Check for errors and get detailed message
+                if response.status_code != 200:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("error", {}).get("message", response.text[:200])
+                    except Exception:
+                        error_msg = response.text[:200]
+                    return {
+                        "success": False,
+                        "message": f"Anthropic API error ({response.status_code}): {error_msg}",
+                        "details": {"status_code": response.status_code, "model": model},
+                    }
+
+                data = response.json()
                 return {
                     "success": True,
                     "message": "Claude API connection successful",
@@ -336,9 +348,21 @@ class IntegrationTester:
                         "messages": [{"role": "user", "content": "Say 'Connection successful' in exactly 2 words."}],
                     },
                 )
-                response.raise_for_status()
-                data = response.json()
 
+                # Check for errors and get detailed message
+                if response.status_code != 200:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("error", {}).get("message", response.text[:200])
+                    except Exception:
+                        error_msg = response.text[:200]
+                    return {
+                        "success": False,
+                        "message": f"OpenAI API error ({response.status_code}): {error_msg}",
+                        "details": {"status_code": response.status_code, "model": model},
+                    }
+
+                data = response.json()
                 return {
                     "success": True,
                     "message": "OpenAI API connection successful",
@@ -356,14 +380,27 @@ class IntegrationTester:
                 response = await client.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                     params={"key": api_key},
+                    headers={"Content-Type": "application/json"},
                     json={
                         "contents": [{"parts": [{"text": "Say 'Connection successful' in exactly 2 words."}]}],
                         "generationConfig": {"maxOutputTokens": 50},
                     },
                 )
-                response.raise_for_status()
-                data = response.json()
 
+                # Check for errors and get detailed message
+                if response.status_code != 200:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("error", {}).get("message", response.text[:200])
+                    except Exception:
+                        error_msg = response.text[:200]
+                    return {
+                        "success": False,
+                        "message": f"Gemini API error ({response.status_code}): {error_msg}",
+                        "details": {"status_code": response.status_code, "model": model},
+                    }
+
+                data = response.json()
                 return {
                     "success": True,
                     "message": "Gemini API connection successful",
