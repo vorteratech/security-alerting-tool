@@ -210,6 +210,7 @@ function getProviderData(providerKey) {
 
 /**
  * Save a single provider configuration
+ * Always sends the request - backend handles merging with existing data
  */
 async function saveProvider(providerKey) {
     const mapping = providerFields[providerKey];
@@ -217,15 +218,6 @@ async function saveProvider(providerKey) {
 
     const data = getProviderData(providerKey);
     if (!data) return { success: false, error: 'Could not get form data' };
-
-    // Check if there's anything to save
-    // Also save if provider was already configured (API key may exist but not be shown in form)
-    const hasNewData = data.api_key || data.api_secret || Object.keys(data.config).length > 0;
-    const wasConfigured = configuredProviders.has(providerKey);
-
-    if (!hasNewData && !wasConfigured) {
-        return { success: true, skipped: true };
-    }
 
     try {
         const response = await fetch(`/api/settings/${mapping.type}/${mapping.provider}`, {
@@ -266,10 +258,10 @@ async function saveAllSettings() {
         if (!configEl || configEl.style.display === 'none') continue;
 
         const result = await saveProvider(key);
-        if (result.success && !result.skipped) {
+        if (result.success) {
             results.push(`${mapping.provider}`);
             markProviderConfigured(mapping.type, mapping.provider);
-        } else if (!result.success) {
+        } else {
             errors.push(`${mapping.provider}: ${result.error}`);
         }
     }
@@ -282,7 +274,7 @@ async function saveAllSettings() {
     } else if (results.length > 0) {
         showNotification(`Successfully saved: ${results.join(', ')}`, 'success');
     } else {
-        showNotification('No changes to save. Select a provider and enter credentials.', 'warning');
+        showNotification('No providers selected. Click a provider button to configure it.', 'warning');
     }
 }
 
