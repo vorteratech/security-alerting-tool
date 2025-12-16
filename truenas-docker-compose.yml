@@ -8,9 +8,9 @@
 version: '3.8'
 
 services:
-  security-alerting:
+  securityalerting:
     image: python:3.11-slim
-    container_name: security-alerting-tool
+    container_name: securityalerting
     restart: unless-stopped
     working_dir: /app
     ports:
