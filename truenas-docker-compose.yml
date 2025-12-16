@@ -1,19 +1,17 @@
-# Security Alerting Tool - TrueNAS Simple Deploy
+# Security Alerting Tool - TrueNAS Self-Contained Deploy
 #
-# This version uses a pre-built image approach that works better with TrueNAS
-#
-# STEP 1: Build the image first (one-time, in TrueNAS shell):
-#   cd /mnt/YOUR_POOL/appdata
-#   git clone https://github.com/vorteratech/security-alerting-tool.git
-#   cd security-alerting-tool
-#   docker build -t securityalerting:latest .
-#
-# STEP 2: Then deploy this compose file
+# USAGE:
+# 1. Copy this entire project folder to TrueNAS: /mnt/YOURPOOL/appdata/securityalerting/
+# 2. In TrueNAS, create a Custom App with this compose file
+#    OR run: cd /mnt/YOURPOOL/appdata/securityalerting && docker-compose -f truenas-docker-compose.yml up -d
 
 version: '3.8'
 
 services:
   securityalerting:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: securityalerting:latest
     container_name: securityalerting
     restart: unless-stopped
