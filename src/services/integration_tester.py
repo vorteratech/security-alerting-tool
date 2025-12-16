@@ -291,14 +291,14 @@ class IntegrationTester:
 
         if provider == "anthropic":
             if not model:
-                model = "claude-3-5-haiku-latest"
+                model = "claude-3-5-haiku-20241022"
 
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     "https://api.anthropic.com/v1/messages",
                     headers={
                         "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
+                        "anthropic-version": "2024-01-01",
                         "Content-Type": "application/json",
                     },
                     json={
@@ -350,7 +350,7 @@ class IntegrationTester:
 
         elif provider == "gemini":
             if not model:
-                model = "gemini-1.5-flash-latest"
+                model = "gemini-1.5-flash"
 
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(

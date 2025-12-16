@@ -24,7 +24,7 @@ class GeminiAdapter(BaseAIAdapter):
     """
 
     API_BASE = "https://generativelanguage.googleapis.com/v1beta"
-    DEFAULT_MODEL = "gemini-1.5-flash-latest"  # Fast and cost-effective
+    DEFAULT_MODEL = "gemini-1.5-flash"  # Fast and cost-effective
 
     def __init__(self, api_key: str, model: str = "", **kwargs):
         """
