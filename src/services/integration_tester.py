@@ -374,11 +374,13 @@ class IntegrationTester:
 
         elif provider == "gemini":
             if not model:
-                model = "gemini-1.5-flash"
+                model = "gemini-pro"
 
             async with httpx.AsyncClient(timeout=60.0) as client:
+                # Try v1 API first for stable models, v1beta for newer ones
+                api_version = "v1beta" if "1.5" in model or "2.0" in model else "v1"
                 response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    f"https://generativelanguage.googleapis.com/{api_version}/models/{model}:generateContent",
                     params={"key": api_key},
                     headers={"Content-Type": "application/json"},
                     json={
