@@ -12,12 +12,12 @@ Storage format: base64(salt[16] + nonce[12] + tag[16] + ciphertext)
 """
 
 import base64
-import hashlib
 import os
 import secrets
 from typing import Optional
 
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -64,7 +64,7 @@ class EncryptionService:
             32-byte derived key.
         """
         kdf = PBKDF2HMAC(
-            algorithm=hashlib.sha256(),
+            algorithm=hashes.SHA256(),
             length=KEY_LENGTH,
             salt=salt,
             iterations=PBKDF2_ITERATIONS,
