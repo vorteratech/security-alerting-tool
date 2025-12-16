@@ -1,174 +1,40 @@
-# Security Alerting Tool - TrueNAS One-Click Deploy
+# Security Alerting Tool - TrueNAS Simple Deploy
 #
-# USAGE: Just copy this entire file and paste into TrueNAS or run:
-#   docker-compose -f truenas-docker-compose.yml up -d
+# This version uses a pre-built image approach that works better with TrueNAS
 #
-# Everything auto-initializes on first run!
+# STEP 1: Build the image first (one-time, in TrueNAS shell):
+#   cd /mnt/YOUR_POOL/appdata
+#   git clone https://github.com/vorteratech/security-alerting-tool.git
+#   cd security-alerting-tool
+#   docker build -t securityalerting:latest .
+#
+# STEP 2: Then deploy this compose file
 
 version: '3.8'
 
 services:
   securityalerting:
-    image: python:3.11-slim
+    image: securityalerting:latest
     container_name: securityalerting
     restart: unless-stopped
-    working_dir: /app
     ports:
       - "8000:8000"
-
-    # All config inline - edit these values directly
     environment:
-      # Auto-generated on first run if empty (check logs for the key)
-      # IMPORTANT: After first run, copy the generated key from logs and paste here
-      # to persist across container recreations
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY:-}
-
-      # EDR Webhook Secrets (optional - get from S1/CS console)
       - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
       - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
-
-      # Teams Bot (optional - get from Azure Bot registration)
       - TEAMS_BOT_APP_ID=${TEAMS_BOT_APP_ID:-}
       - TEAMS_BOT_APP_SECRET=${TEAMS_BOT_APP_SECRET:-}
-
-      # Public URL for Teams callbacks (change to your domain)
       - ACTION_CALLBACK_URL=${ACTION_CALLBACK_URL:-http://localhost:8000/api/v1/actions}
-
       - TZ=${TZ:-UTC}
-      - PYTHONUNBUFFERED=1
-      - PYTHONDONTWRITEBYTECODE=1
-
     volumes:
-      - security-alerting-data:/app/data
-      - security-alerting-src:/app/src
-      - security-alerting-config:/app/config
-
-    # This entrypoint handles EVERYTHING: clone, install, configure, run
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        set -e
-
-        echo "=========================================="
-        echo "Security Alerting Tool - Auto Setup"
-        echo "=========================================="
-
-        # Install system dependencies
-        echo "[1/6] Installing system packages..."
-        apt-get update -qq && apt-get install -y -qq git curl > /dev/null 2>&1
-
-        # Clone or update repo
-        echo "[2/6] Setting up application..."
-        if [ ! -f "/app/src/main.py" ]; then
-          echo "  -> Cloning repository..."
-          git clone --depth 1 https://github.com/vorteratech/security-alerting-tool.git /tmp/repo 2>/dev/null
-          cp -r /tmp/repo/src/* /app/src/ 2>/dev/null || mkdir -p /app/src
-          cp -r /tmp/repo/src /app/
-          cp /tmp/repo/requirements.txt /app/ 2>/dev/null || true
-          cp /tmp/repo/config.yaml /app/config/ 2>/dev/null || true
-          rm -rf /tmp/repo
-        fi
-
-        # Create default config if missing
-        if [ ! -f "/app/config/config.yaml" ]; then
-          echo "  -> Creating default config..."
-          mkdir -p /app/config
-          cat > /app/config/config.yaml << 'CONFIGEOF'
-        server:
-          host: "0.0.0.0"
-          port: 8000
-          debug: false
-        logging:
-          level: INFO
-          format: json
-        database:
-          path: /app/data/settings.db
-        security:
-          verify_webhooks: true
-        defaults:
-          ai_provider: claude
-          threat_intel_providers:
-            - virustotal
-            - alienvault
-        CONFIGEOF
-        fi
-        ln -sf /app/config/config.yaml /app/config.yaml 2>/dev/null || true
-
-        # Generate encryption key if not set
-        echo "[3/6] Checking encryption key..."
-        if [ -z "$$MASTER_ENCRYPTION_KEY" ]; then
-          if [ -f "/app/data/.encryption_key" ]; then
-            export MASTER_ENCRYPTION_KEY=$$(cat /app/data/.encryption_key)
-            echo "  -> Loaded existing key from storage"
-          else
-            export MASTER_ENCRYPTION_KEY=$$(python3 -c "import secrets; print(secrets.token_hex(32))")
-            echo "$$MASTER_ENCRYPTION_KEY" > /app/data/.encryption_key
-            chmod 600 /app/data/.encryption_key
-            echo ""
-            echo "=========================================="
-            echo "NEW ENCRYPTION KEY GENERATED!"
-            echo "=========================================="
-            echo "Key: $$MASTER_ENCRYPTION_KEY"
-            echo ""
-            echo "IMPORTANT: Save this key! Add to your docker-compose:"
-            echo "  MASTER_ENCRYPTION_KEY=$$MASTER_ENCRYPTION_KEY"
-            echo "=========================================="
-            echo ""
-          fi
-        else
-          echo "  -> Using provided key"
-          echo "$$MASTER_ENCRYPTION_KEY" > /app/data/.encryption_key
-          chmod 600 /app/data/.encryption_key
-        fi
-
-        # Install Python dependencies
-        echo "[4/6] Installing Python dependencies..."
-        pip install --quiet --no-cache-dir \
-          fastapi uvicorn[standard] \
-          sqlalchemy[asyncio] aiosqlite \
-          pydantic pydantic-settings \
-          httpx \
-          cryptography \
-          structlog \
-          python-multipart \
-          pyyaml \
-          anthropic openai google-generativeai
-
-        # Create data directory
-        echo "[5/6] Initializing data directory..."
-        mkdir -p /app/data
-
-        # Create minimal src if clone failed
-        if [ ! -f "/app/src/main.py" ]; then
-          echo "  -> Clone failed, creating placeholder..."
-          echo "Repository clone failed. Please check network connectivity." > /app/src/ERROR.txt
-          echo "Visit: https://github.com/vorteratech/security-alerting-tool"
-          exit 1
-        fi
-
-        # Start the application
-        echo "[6/6] Starting application..."
-        echo ""
-        echo "=========================================="
-        echo "Security Alerting Tool is starting!"
-        echo "=========================================="
-        echo "Health check: http://localhost:8000/health"
-        echo "API docs:     http://localhost:8000/docs"
-        echo "=========================================="
-        echo ""
-
-        cd /app
-        exec python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
-
+      - securityalerting-data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s  # Give time for initial setup
+      start_period: 30s
 
 volumes:
-  security-alerting-data:
-  security-alerting-src:
-  security-alerting-config:
+  securityalerting-data:
