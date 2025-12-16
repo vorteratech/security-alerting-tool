@@ -219,8 +219,11 @@ async function saveProvider(providerKey) {
     if (!data) return { success: false, error: 'Could not get form data' };
 
     // Check if there's anything to save
-    const hasData = data.api_key || data.api_secret || Object.keys(data.config).length > 0;
-    if (!hasData) {
+    // Also save if provider was already configured (API key may exist but not be shown in form)
+    const hasNewData = data.api_key || data.api_secret || Object.keys(data.config).length > 0;
+    const wasConfigured = configuredProviders.has(providerKey);
+
+    if (!hasNewData && !wasConfigured) {
         return { success: true, skipped: true };
     }
 

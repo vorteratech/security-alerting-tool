@@ -175,7 +175,13 @@ async def upsert_integration(
     # Update fields
     setting.enabled = config.enabled
     setting.is_primary = config.is_primary
-    setting.config_json = json.dumps(config.config) if config.config else None
+    # Only update config_json if new config data is provided
+    # This preserves existing config when only updating enabled/is_primary
+    if config.config:
+        # Merge with existing config to preserve values not sent in this request
+        existing_config = json.loads(setting.config_json) if setting.config_json else {}
+        existing_config.update(config.config)
+        setting.config_json = json.dumps(existing_config)
 
     # Encrypt API credentials if provided
     if config.api_key or config.api_secret:
