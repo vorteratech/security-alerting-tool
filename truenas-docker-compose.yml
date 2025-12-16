@@ -34,7 +34,7 @@ services:
         else
           echo 'Updating from repository...'
           cd /app/src
-          git fetch origin && git reset --hard origin/main || echo 'Git update failed, using cached version'
+          git fetch origin && git reset --hard origin/HEAD || echo 'Git update failed, using cached version'
         fi
 
         # Generate encryption key if not set
