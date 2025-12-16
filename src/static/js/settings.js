@@ -337,14 +337,23 @@ async function testConnections() {
         return;
     }
 
-    const successful = results.filter(r => r.success).map(r => r.provider);
+    const successful = results.filter(r => r.success);
     const failed = results.filter(r => !r.success);
 
+    // Build detailed message
+    let message = '';
+    if (successful.length > 0) {
+        message += successful.map(r => `${r.provider}: ${r.message}`).join(' | ');
+    }
     if (failed.length > 0) {
-        showNotification(`Test results: ${successful.length} passed, ${failed.length} failed`,
-            successful.length > 0 ? 'warning' : 'error');
+        if (message) message += ' | ';
+        message += failed.map(r => `${r.provider}: ${r.message}`).join(' | ');
+    }
+
+    if (failed.length > 0) {
+        showNotification(message, successful.length > 0 ? 'warning' : 'error');
     } else {
-        showNotification(`All ${successful.length} integration tests passed!`, 'success');
+        showNotification(message, 'success');
     }
 }
 
