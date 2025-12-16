@@ -291,7 +291,7 @@ class IntegrationTester:
 
         if provider == "anthropic":
             if not model:
-                model = "claude-3-haiku-20240307"
+                model = "claude-3-5-haiku-latest"
 
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
