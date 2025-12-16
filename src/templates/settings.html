@@ -365,6 +365,26 @@
         </footer>
     </div>
 
+    <!-- Test Results Modal -->
+    <div class="modal-overlay" id="test-modal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">Testing Connections</h3>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <div class="test-progress" id="test-progress">
+                    <div class="spinner"></div>
+                    <p>Running tests...</p>
+                </div>
+                <div class="test-results" id="test-results" style="display:none;">
+                </div>
+            </div>
+            <div class="modal-footer" id="modal-footer" style="display:none;">
+                <button class="modal-btn" onclick="closeTestModal()">OK</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/settings.js"></script>
 </body>
 </html>

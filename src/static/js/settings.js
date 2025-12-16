@@ -295,16 +295,106 @@ function markProviderConfigured(type, provider) {
 }
 
 /**
+ * Show the test modal
+ */
+function showTestModal() {
+    const modal = document.getElementById('test-modal');
+    const progress = document.getElementById('test-progress');
+    const results = document.getElementById('test-results');
+    const footer = document.getElementById('modal-footer');
+    const title = document.getElementById('modal-title');
+
+    title.textContent = 'Testing Connections';
+    progress.style.display = 'flex';
+    results.style.display = 'none';
+    results.innerHTML = '';
+    footer.style.display = 'none';
+    modal.style.display = 'flex';
+}
+
+/**
+ * Close the test modal
+ */
+function closeTestModal() {
+    const modal = document.getElementById('test-modal');
+    modal.style.display = 'none';
+}
+
+/**
+ * Add a result to the modal
+ */
+function addTestResult(provider, success, message, details) {
+    const results = document.getElementById('test-results');
+    const icon = success ? '✓' : '✗';
+    const statusClass = success ? 'success' : 'error';
+
+    let detailsHtml = '';
+    if (details && Object.keys(details).length > 0) {
+        const detailsText = Object.entries(details)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join('\n');
+        detailsHtml = `<div class="test-result-details">${detailsText}</div>`;
+    }
+
+    results.innerHTML += `
+        <div class="test-result-item ${statusClass}">
+            <span class="test-result-icon">${icon}</span>
+            <div class="test-result-content">
+                <div class="test-result-provider">${provider}</div>
+                <div class="test-result-message">${message}</div>
+                ${detailsHtml}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Show test summary and OK button
+ */
+function showTestSummary(passed, failed) {
+    const progress = document.getElementById('test-progress');
+    const results = document.getElementById('test-results');
+    const footer = document.getElementById('modal-footer');
+    const title = document.getElementById('modal-title');
+
+    progress.style.display = 'none';
+    results.style.display = 'flex';
+    footer.style.display = 'flex';
+
+    let summaryClass = 'all-passed';
+    let summaryText = `All ${passed} tests passed!`;
+
+    if (failed > 0 && passed > 0) {
+        summaryClass = 'some-failed';
+        summaryText = `${passed} passed, ${failed} failed`;
+    } else if (failed > 0 && passed === 0) {
+        summaryClass = 'all-failed';
+        summaryText = `All ${failed} tests failed`;
+    }
+
+    title.textContent = 'Test Results';
+    results.innerHTML += `<div class="test-summary ${summaryClass}">${summaryText}</div>`;
+}
+
+/**
  * Test all configured integrations
  */
 async function testConnections() {
+    if (configuredProviders.size === 0) {
+        showNotification('No integrations configured to test. Save settings first.', 'warning');
+        return;
+    }
+
+    // Show modal with progress
+    showTestModal();
+
     const testBtn = document.querySelector('.test-btn');
-    const originalText = testBtn.textContent;
     testBtn.disabled = true;
-    testBtn.innerHTML = 'Testing... <span class="loading"></span>';
 
-    const results = [];
+    let passed = 0;
+    let failed = 0;
 
+    // Test each provider and show results as they come in
     for (const providerKey of configuredProviders) {
         const mapping = providerFields[providerKey];
         if (!mapping) continue;
@@ -315,46 +405,32 @@ async function testConnections() {
             });
 
             const result = await response.json();
-            results.push({
-                provider: mapping.provider,
-                success: result.success,
-                message: result.message
-            });
+            addTestResult(
+                mapping.provider.charAt(0).toUpperCase() + mapping.provider.slice(1),
+                result.success,
+                result.message,
+                result.details
+            );
+
+            if (result.success) {
+                passed++;
+            } else {
+                failed++;
+            }
         } catch (error) {
-            results.push({
-                provider: mapping.provider,
-                success: false,
-                message: error.message
-            });
+            addTestResult(
+                mapping.provider.charAt(0).toUpperCase() + mapping.provider.slice(1),
+                false,
+                error.message,
+                null
+            );
+            failed++;
         }
     }
 
+    // Show summary and enable OK button
+    showTestSummary(passed, failed);
     testBtn.disabled = false;
-    testBtn.textContent = originalText;
-
-    if (results.length === 0) {
-        showNotification('No integrations configured to test. Save settings first.', 'warning');
-        return;
-    }
-
-    const successful = results.filter(r => r.success);
-    const failed = results.filter(r => !r.success);
-
-    // Build detailed message
-    let message = '';
-    if (successful.length > 0) {
-        message += successful.map(r => `${r.provider}: ${r.message}`).join(' | ');
-    }
-    if (failed.length > 0) {
-        if (message) message += ' | ';
-        message += failed.map(r => `${r.provider}: ${r.message}`).join(' | ');
-    }
-
-    if (failed.length > 0) {
-        showNotification(message, successful.length > 0 ? 'warning' : 'error');
-    } else {
-        showNotification(message, 'success');
-    }
 }
 
 /**

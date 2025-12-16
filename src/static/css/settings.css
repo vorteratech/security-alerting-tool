@@ -402,3 +402,170 @@ footer a:hover {
         flex-direction: column;
     }
 }
+
+/* Modal Overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.modal {
+    background-color: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    min-width: 400px;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+.modal-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--input-bg);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.modal-body {
+    padding: 1.5rem;
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+    background-color: var(--input-bg);
+}
+
+.modal-btn {
+    padding: 0.75rem 2rem;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.modal-btn:hover {
+    background-color: var(--primary-hover);
+}
+
+/* Test Progress */
+.test-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+}
+
+.test-progress p {
+    margin-top: 1rem;
+    color: var(--text-secondary);
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* Test Results */
+.test-results {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.test-result-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+    border-radius: 8px;
+    background-color: var(--input-bg);
+}
+
+.test-result-item.success {
+    border-left: 4px solid var(--success-color);
+}
+
+.test-result-item.error {
+    border-left: 4px solid var(--danger-color);
+}
+
+.test-result-item.pending {
+    border-left: 4px solid var(--border-color);
+}
+
+.test-result-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.test-result-content {
+    flex: 1;
+}
+
+.test-result-provider {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.test-result-message {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.test-result-details {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background-color: var(--card-bg);
+    border-radius: 4px;
+    font-family: monospace;
+}
+
+.test-summary {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    text-align: center;
+    font-weight: 600;
+}
+
+.test-summary.all-passed {
+    color: var(--success-color);
+}
+
+.test-summary.some-failed {
+    color: var(--warning-color);
+}
+
+.test-summary.all-failed {
+    color: var(--danger-color);
+}
