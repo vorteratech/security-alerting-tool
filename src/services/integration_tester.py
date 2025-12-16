@@ -350,7 +350,7 @@ class IntegrationTester:
 
         elif provider == "gemini":
             if not model:
-                model = "gemini-1.5-flash"
+                model = "gemini-1.5-flash-latest"
 
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
