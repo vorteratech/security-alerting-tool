@@ -32,8 +32,9 @@ services:
           pip install --no-cache-dir -r requirements.txt
           touch /app/src/.installed
         else
-          echo 'Using cached installation'
+          echo 'Updating from repository...'
           cd /app/src
+          git fetch origin && git reset --hard origin/main || echo 'Git update failed, using cached version'
         fi
 
         # Generate encryption key if not set
