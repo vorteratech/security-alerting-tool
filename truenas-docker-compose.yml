@@ -1,38 +1,65 @@
-# Security Alerting Tool - TrueNAS Self-Contained Deploy
-#
-# USAGE:
-# 1. Copy this entire project folder to TrueNAS: /mnt/YOURPOOL/appdata/securityalerting/
-# 2. In TrueNAS, create a Custom App with this compose file
-#    OR run: cd /mnt/YOURPOOL/appdata/securityalerting && docker-compose -f truenas-docker-compose.yml up -d
+# Security Alerting Tool - TrueNAS One-Click Deploy
+# Just paste this YAML into TrueNAS Custom App and deploy!
 
 version: '3.8'
 
 services:
   securityalerting:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: securityalerting:latest
+    image: python:3.11-slim
     container_name: securityalerting
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY:-}
-      - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
-      - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
-      - TEAMS_BOT_APP_ID=${TEAMS_BOT_APP_ID:-}
-      - TEAMS_BOT_APP_SECRET=${TEAMS_BOT_APP_SECRET:-}
-      - ACTION_CALLBACK_URL=${ACTION_CALLBACK_URL:-http://localhost:8000/api/v1/actions}
       - TZ=${TZ:-UTC}
     volumes:
       - securityalerting-data:/app/data
+      - securityalerting-src:/app/src
+    working_dir: /app
+    command: >
+      bash -c "
+        set -e
+
+        # Install git and curl
+        apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
+
+        # Clone or update repo
+        if [ ! -f /app/src/.installed ]; then
+          echo 'Cloning repository...'
+          git clone https://github.com/vorteratech/security-alerting-tool.git /app/src
+          cd /app/src
+          pip install --no-cache-dir -r requirements.txt
+          touch /app/src/.installed
+        else
+          echo 'Using cached installation'
+          cd /app/src
+        fi
+
+        # Generate encryption key if not set
+        if [ -z \"$$MASTER_ENCRYPTION_KEY\" ]; then
+          if [ -f /app/data/.encryption_key ]; then
+            export MASTER_ENCRYPTION_KEY=$$(cat /app/data/.encryption_key)
+            echo 'Loaded encryption key from storage'
+          else
+            export MASTER_ENCRYPTION_KEY=$$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+            echo \"$$MASTER_ENCRYPTION_KEY\" > /app/data/.encryption_key
+            chmod 600 /app/data/.encryption_key
+            echo 'Generated new encryption key'
+          fi
+        fi
+
+        # Start the app
+        cd /app/src
+        python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
+      "
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 120s
 
 volumes:
   securityalerting-data:
+  securityalerting-src:
