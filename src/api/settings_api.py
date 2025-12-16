@@ -187,9 +187,16 @@ async def upsert_integration(
             if config.api_secret:
                 setting.api_secret_encrypted = encryption.encrypt(config.api_secret)
         except ValueError as e:
+            logger.error("Encryption ValueError", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Encryption error: {str(e)}. Ensure MASTER_ENCRYPTION_KEY is set.",
+            )
+        except Exception as e:
+            logger.error("Unexpected encryption error", error=str(e), exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Encryption error: {str(e)}. Check server logs for details.",
             )
 
     # If setting as primary, unset other primaries of same type

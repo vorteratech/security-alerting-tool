@@ -45,13 +45,15 @@ services:
             export MASTER_ENCRYPTION_KEY=$$(python3 -c 'import secrets; print(secrets.token_hex(32))')
             echo \"$$MASTER_ENCRYPTION_KEY\" > /app/data/.encryption_key
             chmod 600 /app/data/.encryption_key
-            echo 'Generated new encryption key'
+            echo 'Generated new encryption key - saved to /app/data/.encryption_key'
           fi
         fi
 
-        # Start the app
+        echo \"Encryption key loaded: $${MASTER_ENCRYPTION_KEY:0:8}...\"
+
+        # Start the app with the encryption key in environment
         cd /app/src
-        python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
+        exec env MASTER_ENCRYPTION_KEY=\"$$MASTER_ENCRYPTION_KEY\" python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
       "
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
