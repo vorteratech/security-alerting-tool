@@ -1,0 +1,455 @@
+"""
+Integration connectivity testing service.
+
+Provides real connectivity tests for all integration types:
+- EDR: Test API authentication
+- PSA: Create a test ticket
+- Threat Intel: Test API lookup
+- AI: Send a test prompt
+- Chat: Send a test message
+"""
+
+import json
+from datetime import datetime
+from typing import Any, Optional
+
+import httpx
+
+from ..config.logging import get_logger
+from ..config.settings import Settings
+from ..database.models import IntegrationSetting
+from ..security.encryption import create_encryption_service
+
+logger = get_logger(__name__)
+
+
+class IntegrationTester:
+    """Tests integration connectivity with real API calls."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.encryption = create_encryption_service(settings.master_encryption_key)
+
+    def _decrypt_credentials(
+        self, setting: IntegrationSetting
+    ) -> tuple[Optional[str], Optional[str], dict]:
+        """Decrypt API credentials from setting."""
+        api_key = None
+        api_secret = None
+        config = {}
+
+        if setting.api_key_encrypted:
+            api_key = self.encryption.decrypt(setting.api_key_encrypted)
+        if setting.api_secret_encrypted:
+            api_secret = self.encryption.decrypt(setting.api_secret_encrypted)
+        if setting.config_json:
+            config = json.loads(setting.config_json)
+
+        return api_key, api_secret, config
+
+    async def test_integration(
+        self, setting: IntegrationSetting
+    ) -> dict[str, Any]:
+        """
+        Test an integration based on its type and provider.
+
+        Returns dict with:
+            - success: bool
+            - message: str
+            - details: Optional[dict]
+        """
+        integration_type = setting.integration_type
+        provider = setting.provider
+
+        api_key, api_secret, config = self._decrypt_credentials(setting)
+
+        if not api_key and integration_type not in ("chat",):
+            return {
+                "success": False,
+                "message": "No API key configured",
+                "details": None,
+            }
+
+        try:
+            if integration_type == "edr":
+                return await self._test_edr(provider, api_key, api_secret, config)
+            elif integration_type == "psa":
+                return await self._test_psa(provider, api_key, api_secret, config)
+            elif integration_type == "threat_intel":
+                return await self._test_threat_intel(provider, api_key, config)
+            elif integration_type == "ai":
+                return await self._test_ai(provider, api_key, config)
+            elif integration_type == "chat":
+                return await self._test_chat(provider, api_key, api_secret, config)
+            else:
+                return {
+                    "success": False,
+                    "message": f"Unknown integration type: {integration_type}",
+                    "details": None,
+                }
+        except Exception as e:
+            logger.error(
+                "Integration test failed",
+                integration_type=integration_type,
+                provider=provider,
+                error=str(e),
+            )
+            return {
+                "success": False,
+                "message": str(e),
+                "details": {"error_type": type(e).__name__},
+            }
+
+    async def _test_edr(
+        self,
+        provider: str,
+        api_key: str,
+        api_secret: Optional[str],
+        config: dict,
+    ) -> dict[str, Any]:
+        """Test EDR connectivity."""
+        base_url = config.get("base_url", "")
+
+        if provider == "sentinelone":
+            if not base_url:
+                return {"success": False, "message": "Base URL not configured", "details": None}
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{base_url}/web/api/v2.1/system/status",
+                    headers={
+                        "Authorization": f"ApiToken {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                return {
+                    "success": True,
+                    "message": "SentinelOne API connection successful",
+                    "details": {
+                        "health": data.get("data", {}).get("health", "unknown"),
+                    },
+                }
+
+        elif provider == "crowdstrike":
+            if not base_url:
+                base_url = "https://api.crowdstrike.com"
+
+            client_id = config.get("client_id", "")
+            if not client_id:
+                return {"success": False, "message": "Client ID not configured", "details": None}
+
+            # Get OAuth token
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                token_response = await client.post(
+                    f"{base_url}/oauth2/token",
+                    data={
+                        "client_id": client_id,
+                        "client_secret": api_secret or api_key,
+                    },
+                )
+                token_response.raise_for_status()
+                token_data = token_response.json()
+                access_token = token_data["access_token"]
+
+                # Test with a simple API call
+                response = await client.get(
+                    f"{base_url}/sensors/queries/sensors/v1",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={"limit": 1},
+                )
+                response.raise_for_status()
+
+                return {
+                    "success": True,
+                    "message": "CrowdStrike API connection successful",
+                    "details": {"authenticated": True},
+                }
+
+        return {"success": False, "message": f"Unknown EDR provider: {provider}", "details": None}
+
+    async def _test_psa(
+        self,
+        provider: str,
+        api_key: str,
+        api_secret: Optional[str],
+        config: dict,
+    ) -> dict[str, Any]:
+        """Test PSA connectivity by creating a test ticket."""
+        base_url = config.get("base_url", "")
+
+        if provider == "superops":
+            if not base_url:
+                base_url = "https://api.superops.ai"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                }
+
+                # Create a test ticket
+                test_ticket = {
+                    "subject": "[TEST] Security Alerting Tool - Connection Test",
+                    "description": (
+                        "This is an automated test ticket created by the Security Alerting Tool "
+                        "to verify PSA connectivity. This ticket can be safely deleted.\n\n"
+                        f"Test performed at: {datetime.utcnow().isoformat()} UTC"
+                    ),
+                    "priority": "low",
+                    "type": "incident",
+                    "source": "api",
+                    "tags": ["test", "security-alerting-tool", "auto-generated"],
+                }
+
+                # Add default client if configured
+                if config.get("default_client_id"):
+                    test_ticket["client_id"] = config["default_client_id"]
+
+                response = await client.post(
+                    f"{base_url}/v1/tickets",
+                    headers=headers,
+                    json=test_ticket,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                ticket_data = data.get("data", data)
+                ticket_id = ticket_data.get("id", "")
+                ticket_number = ticket_data.get("ticket_number", ticket_data.get("number", "N/A"))
+
+                return {
+                    "success": True,
+                    "message": f"Test ticket created successfully: #{ticket_number}",
+                    "details": {
+                        "ticket_id": ticket_id,
+                        "ticket_number": ticket_number,
+                        "note": "A test ticket was created in your PSA. You can delete it manually.",
+                    },
+                }
+
+        return {"success": False, "message": f"Unknown PSA provider: {provider}", "details": None}
+
+    async def _test_threat_intel(
+        self,
+        provider: str,
+        api_key: str,
+        config: dict,
+    ) -> dict[str, Any]:
+        """Test threat intelligence connectivity."""
+        if provider == "virustotal":
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Look up a known safe hash (SHA256 of empty file)
+                test_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                response = await client.get(
+                    f"https://www.virustotal.com/api/v3/files/{test_hash}",
+                    headers={
+                        "x-apikey": api_key,
+                        "Accept": "application/json",
+                    },
+                )
+                # 404 means API key works but hash not found - that's OK
+                if response.status_code in (200, 404):
+                    return {
+                        "success": True,
+                        "message": "VirusTotal API connection successful",
+                        "details": {"api_version": "v3"},
+                    }
+                response.raise_for_status()
+
+        elif provider == "alienvault":
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Test with a simple API call
+                response = await client.get(
+                    "https://otx.alienvault.com/api/v1/user/me",
+                    headers={"X-OTX-API-KEY": api_key},
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                return {
+                    "success": True,
+                    "message": "AlienVault OTX API connection successful",
+                    "details": {
+                        "username": data.get("username", "unknown"),
+                        "member_since": data.get("member_since", ""),
+                    },
+                }
+
+        return {"success": False, "message": f"Unknown threat intel provider: {provider}", "details": None}
+
+    async def _test_ai(
+        self,
+        provider: str,
+        api_key: str,
+        config: dict,
+    ) -> dict[str, Any]:
+        """Test AI provider connectivity with a simple prompt."""
+        model = config.get("model", "")
+
+        if provider == "anthropic":
+            if not model:
+                model = "claude-3-haiku-20240307"
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 50,
+                        "messages": [{"role": "user", "content": "Say 'Connection successful' in exactly 2 words."}],
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                return {
+                    "success": True,
+                    "message": "Claude API connection successful",
+                    "details": {
+                        "model": model,
+                        "response": data.get("content", [{}])[0].get("text", "")[:100],
+                    },
+                }
+
+        elif provider == "openai":
+            if not model:
+                model = "gpt-4o-mini"
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 50,
+                        "messages": [{"role": "user", "content": "Say 'Connection successful' in exactly 2 words."}],
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                return {
+                    "success": True,
+                    "message": "OpenAI API connection successful",
+                    "details": {
+                        "model": model,
+                        "response": data.get("choices", [{}])[0].get("message", {}).get("content", "")[:100],
+                    },
+                }
+
+        elif provider == "gemini":
+            if not model:
+                model = "gemini-1.5-flash"
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent",
+                    params={"key": api_key},
+                    json={
+                        "contents": [{"parts": [{"text": "Say 'Connection successful' in exactly 2 words."}]}],
+                        "generationConfig": {"maxOutputTokens": 50},
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                return {
+                    "success": True,
+                    "message": "Gemini API connection successful",
+                    "details": {
+                        "model": model,
+                        "response": data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")[:100],
+                    },
+                }
+
+        return {"success": False, "message": f"Unknown AI provider: {provider}", "details": None}
+
+    async def _test_chat(
+        self,
+        provider: str,
+        api_key: Optional[str],
+        api_secret: Optional[str],
+        config: dict,
+    ) -> dict[str, Any]:
+        """Test chat connectivity by sending a test message."""
+        if provider == "teams":
+            webhook_url = config.get("webhook_url", "")
+            bot_app_id = config.get("bot_app_id", "")
+
+            # If webhook URL is configured, use incoming webhook (simpler)
+            if webhook_url:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    # Send a simple test card
+                    test_card = {
+                        "@type": "MessageCard",
+                        "@context": "http://schema.org/extensions",
+                        "themeColor": "0076D7",
+                        "summary": "Security Alerting Tool - Test",
+                        "sections": [
+                            {
+                                "activityTitle": "Connection Test Successful",
+                                "activitySubtitle": f"Test performed at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                                "activityImage": "https://adaptivecards.io/content/cats/1.png",
+                                "facts": [
+                                    {"name": "Status", "value": "Connected"},
+                                    {"name": "Source", "value": "Security Alerting Tool"},
+                                ],
+                                "markdown": True,
+                            }
+                        ],
+                    }
+
+                    response = await client.post(webhook_url, json=test_card)
+                    response.raise_for_status()
+
+                    return {
+                        "success": True,
+                        "message": "Teams webhook test message sent successfully",
+                        "details": {
+                            "type": "incoming_webhook",
+                            "note": "Check your Teams channel for the test message",
+                        },
+                    }
+
+            # If bot credentials are configured, use Bot Framework
+            elif bot_app_id and api_secret:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    # Get Bot Framework token to verify credentials
+                    token_response = await client.post(
+                        "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token",
+                        data={
+                            "grant_type": "client_credentials",
+                            "client_id": bot_app_id,
+                            "client_secret": api_secret,
+                            "scope": "https://api.botframework.com/.default",
+                        },
+                    )
+                    token_response.raise_for_status()
+
+                    return {
+                        "success": True,
+                        "message": "Teams Bot credentials validated successfully",
+                        "details": {
+                            "type": "bot_framework",
+                            "note": "Bot can send messages to channels where it's installed",
+                        },
+                    }
+
+            return {
+                "success": False,
+                "message": "No Teams webhook URL or Bot credentials configured",
+                "details": None,
+            }
+
+        return {"success": False, "message": f"Unknown chat provider: {provider}", "details": None}

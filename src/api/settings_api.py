@@ -260,8 +260,15 @@ async def test_integration(
     """
     Test connectivity for an integration.
 
-    Attempts to connect to the integration's API and verify credentials.
+    Performs real API calls to verify credentials:
+    - EDR: Tests API authentication
+    - PSA: Creates a test ticket (can be deleted manually)
+    - Threat Intel: Tests API with a sample lookup
+    - AI: Sends a test prompt
+    - Chat: Sends a test message to Teams
     """
+    from ..services.integration_tester import IntegrationTester
+
     # Get integration settings
     query = select(IntegrationSetting).where(
         and_(
@@ -278,17 +285,21 @@ async def test_integration(
             detail=f"Integration {integration_type}/{provider} not found",
         )
 
-    if not setting.api_key_encrypted:
+    # Chat providers may work with just webhook URL (no api_key)
+    if not setting.api_key_encrypted and integration_type != "chat":
         return TestResult(
             success=False,
             message="No API key configured for this integration",
         )
 
-    # TODO: Implement actual connectivity tests for each provider
-    # This would:
-    # 1. Decrypt API key
-    # 2. Make a test API call to the provider
-    # 3. Return success/failure
+    # For chat, check if we have webhook URL or bot credentials
+    if integration_type == "chat" and not setting.api_key_encrypted:
+        config = json.loads(setting.config_json) if setting.config_json else {}
+        if not config.get("webhook_url") and not config.get("bot_app_id"):
+            return TestResult(
+                success=False,
+                message="No webhook URL or bot credentials configured",
+            )
 
     logger.info(
         "Integration test requested",
@@ -296,8 +307,12 @@ async def test_integration(
         provider=provider,
     )
 
+    # Run the actual connectivity test
+    tester = IntegrationTester(settings)
+    test_result = await tester.test_integration(setting)
+
     return TestResult(
-        success=True,
-        message=f"Connectivity test for {provider} - Not yet implemented",
-        details={"note": "Actual connectivity testing will be implemented per provider"},
+        success=test_result["success"],
+        message=test_result["message"],
+        details=test_result.get("details"),
     )
