@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Alerting Tool - Settings</title>
+    <link rel="stylesheet" href="/static/css/settings.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Security Alerting Tool</h1>
+            <p class="subtitle">Integration Settings</p>
+        </header>
+
+        <div class="notification" id="notification"></div>
+
+        <!-- EDR Section -->
+        <section class="settings-section" id="edr-section">
+            <div class="section-header" onclick="toggleSection('edr')">
+                <h2>
+                    <span class="icon">&#128737;</span>
+                    EDR Integrations
+                </h2>
+                <span class="toggle-icon" id="edr-toggle">&#9660;</span>
+            </div>
+            <div class="section-content" id="edr-content">
+                <p class="section-description">Configure your Endpoint Detection and Response platform connections.</p>
+
+                <div class="provider-selector">
+                    <label>Select EDR Provider:</label>
+                    <div class="provider-buttons">
+                        <button class="provider-btn" data-provider="sentinelone" data-type="edr" onclick="selectProvider('edr', 'sentinelone')">
+                            SentinelOne
+                        </button>
+                        <button class="provider-btn" data-provider="crowdstrike" data-type="edr" onclick="selectProvider('edr', 'crowdstrike')">
+                            CrowdStrike
+                        </button>
+                    </div>
+                </div>
+
+                <!-- SentinelOne Config -->
+                <div class="provider-config" id="edr-sentinelone-config" style="display:none;">
+                    <h3>SentinelOne Configuration</h3>
+                    <div class="form-group">
+                        <label for="s1-url">Management Console URL</label>
+                        <input type="url" id="s1-url" placeholder="https://usea1-partners.sentinelone.net">
+                    </div>
+                    <div class="form-group">
+                        <label for="s1-api-key">API Token</label>
+                        <input type="password" id="s1-api-key" placeholder="Enter your SentinelOne API token">
+                        <span class="help-text">Generate from Settings > Users > API Token</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="s1-webhook-secret">Webhook Secret (Optional)</label>
+                        <input type="password" id="s1-webhook-secret" placeholder="Webhook verification secret">
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="s1-enabled" checked>
+                        <label for="s1-enabled">Enabled</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="s1-primary">
+                        <label for="s1-primary">Set as Primary EDR</label>
+                    </div>
+                </div>
+
+                <!-- CrowdStrike Config -->
+                <div class="provider-config" id="edr-crowdstrike-config" style="display:none;">
+                    <h3>CrowdStrike Configuration</h3>
+                    <div class="form-group">
+                        <label for="cs-url">API Base URL</label>
+                        <input type="url" id="cs-url" placeholder="https://api.crowdstrike.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="cs-client-id">Client ID</label>
+                        <input type="text" id="cs-client-id" placeholder="Enter your OAuth2 Client ID">
+                    </div>
+                    <div class="form-group">
+                        <label for="cs-client-secret">Client Secret</label>
+                        <input type="password" id="cs-client-secret" placeholder="Enter your OAuth2 Client Secret">
+                    </div>
+                    <div class="form-group">
+                        <label for="cs-webhook-secret">Webhook Secret (Optional)</label>
+                        <input type="password" id="cs-webhook-secret" placeholder="Webhook verification secret">
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="cs-enabled" checked>
+                        <label for="cs-enabled">Enabled</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="cs-primary">
+                        <label for="cs-primary">Set as Primary EDR</label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PSA Section -->
+        <section class="settings-section" id="psa-section">
+            <div class="section-header" onclick="toggleSection('psa')">
+                <h2>
+                    <span class="icon">&#128196;</span>
+                    PSA / Ticketing
+                </h2>
+                <span class="toggle-icon" id="psa-toggle">&#9660;</span>
+            </div>
+            <div class="section-content" id="psa-content">
+                <p class="section-description">Configure your Professional Services Automation platform for ticket creation.</p>
+
+                <div class="provider-selector">
+                    <label>Select PSA Provider:</label>
+                    <div class="provider-buttons">
+                        <button class="provider-btn" data-provider="superops" data-type="psa" onclick="selectProvider('psa', 'superops')">
+                            SuperOps
+                        </button>
+                    </div>
+                </div>
+
+                <!-- SuperOps Config -->
+                <div class="provider-config" id="psa-superops-config" style="display:none;">
+                    <h3>SuperOps Configuration</h3>
+                    <div class="form-group">
+                        <label for="superops-url">API URL</label>
+                        <input type="url" id="superops-url" placeholder="https://api.superops.ai">
+                    </div>
+                    <div class="form-group">
+                        <label for="superops-api-key">API Key</label>
+                        <input type="password" id="superops-api-key" placeholder="Enter your SuperOps API key">
+                    </div>
+                    <div class="form-group">
+                        <label for="superops-default-client">Default Client ID (Optional)</label>
+                        <input type="text" id="superops-default-client" placeholder="Default client for new tickets">
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="superops-enabled" checked>
+                        <label for="superops-enabled">Enabled</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="superops-primary" checked>
+                        <label for="superops-primary">Set as Primary PSA</label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Threat Intelligence Section -->
+        <section class="settings-section" id="threat_intel-section">
+            <div class="section-header" onclick="toggleSection('threat_intel')">
+                <h2>
+                    <span class="icon">&#128270;</span>
+                    Threat Intelligence
+                </h2>
+                <span class="toggle-icon" id="threat_intel-toggle">&#9660;</span>
+            </div>
+            <div class="section-content" id="threat_intel-content">
+                <p class="section-description">Configure threat intelligence sources for alert enrichment.</p>
+
+                <div class="provider-selector">
+                    <label>Select Provider:</label>
+                    <div class="provider-buttons">
+                        <button class="provider-btn" data-provider="virustotal" data-type="threat_intel" onclick="selectProvider('threat_intel', 'virustotal')">
+                            VirusTotal
+                        </button>
+                        <button class="provider-btn" data-provider="alienvault" data-type="threat_intel" onclick="selectProvider('threat_intel', 'alienvault')">
+                            AlienVault OTX
+                        </button>
+                    </div>
+                </div>
+
+                <!-- VirusTotal Config -->
+                <div class="provider-config" id="threat_intel-virustotal-config" style="display:none;">
+                    <h3>VirusTotal Configuration</h3>
+                    <div class="form-group">
+                        <label for="vt-api-key">API Key</label>
+                        <input type="password" id="vt-api-key" placeholder="Enter your VirusTotal API key">
+                        <span class="help-text">Get your free API key from virustotal.com</span>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="vt-enabled" checked>
+                        <label for="vt-enabled">Enabled</label>
+                    </div>
+                </div>
+
+                <!-- AlienVault Config -->
+                <div class="provider-config" id="threat_intel-alienvault-config" style="display:none;">
+                    <h3>AlienVault OTX Configuration</h3>
+                    <div class="form-group">
+                        <label for="av-api-key">OTX API Key</label>
+                        <input type="password" id="av-api-key" placeholder="Enter your AlienVault OTX API key">
+                        <span class="help-text">Get your free API key from otx.alienvault.com</span>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="av-enabled" checked>
+                        <label for="av-enabled">Enabled</label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- AI Providers Section -->
+        <section class="settings-section" id="ai-section">
+            <div class="section-header" onclick="toggleSection('ai')">
+                <h2>
+                    <span class="icon">&#129302;</span>
+                    AI Analysis
+                </h2>
+                <span class="toggle-icon" id="ai-toggle">&#9660;</span>
+            </div>
+            <div class="section-content" id="ai-content">
+                <p class="section-description">Configure AI providers for intelligent alert analysis.</p>
+
+                <div class="provider-selector">
+                    <label>Select AI Provider:</label>
+                    <div class="provider-buttons">
+                        <button class="provider-btn" data-provider="anthropic" data-type="ai" onclick="selectProvider('ai', 'anthropic')">
+                            Claude (Anthropic)
+                        </button>
+                        <button class="provider-btn" data-provider="openai" data-type="ai" onclick="selectProvider('ai', 'openai')">
+                            OpenAI
+                        </button>
+                        <button class="provider-btn" data-provider="gemini" data-type="ai" onclick="selectProvider('ai', 'gemini')">
+                            Google Gemini
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Anthropic Config -->
+                <div class="provider-config" id="ai-anthropic-config" style="display:none;">
+                    <h3>Claude (Anthropic) Configuration</h3>
+                    <div class="form-group">
+                        <label for="anthropic-api-key">API Key</label>
+                        <input type="password" id="anthropic-api-key" placeholder="sk-ant-...">
+                    </div>
+                    <div class="form-group">
+                        <label for="anthropic-model">Model</label>
+                        <select id="anthropic-model">
+                            <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (Recommended)</option>
+                            <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Fast)</option>
+                            <option value="claude-opus-4-20250514">Claude Opus 4 (Most Capable)</option>
+                        </select>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="anthropic-enabled" checked>
+                        <label for="anthropic-enabled">Enabled</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="anthropic-primary">
+                        <label for="anthropic-primary">Set as Primary AI</label>
+                    </div>
+                </div>
+
+                <!-- OpenAI Config -->
+                <div class="provider-config" id="ai-openai-config" style="display:none;">
+                    <h3>OpenAI Configuration</h3>
+                    <div class="form-group">
+                        <label for="openai-api-key">API Key</label>
+                        <input type="password" id="openai-api-key" placeholder="sk-...">
+                    </div>
+                    <div class="form-group">
+                        <label for="openai-model">Model</label>
+                        <select id="openai-model">
+                            <option value="gpt-4o">GPT-4o (Recommended)</option>
+                            <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
+                            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                        </select>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="openai-enabled" checked>
+                        <label for="openai-enabled">Enabled</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="openai-primary">
+                        <label for="openai-primary">Set as Primary AI</label>
+                    </div>
+                </div>
+
+                <!-- Gemini Config -->
+                <div class="provider-config" id="ai-gemini-config" style="display:none;">
+                    <h3>Google Gemini Configuration</h3>
+                    <div class="form-group">
+                        <label for="gemini-api-key">API Key</label>
+                        <input type="password" id="gemini-api-key" placeholder="Enter your Gemini API key">
+                    </div>
+                    <div class="form-group">
+                        <label for="gemini-model">Model</label>
+                        <select id="gemini-model">
+                            <option value="gemini-1.5-pro">Gemini 1.5 Pro (Recommended)</option>
+                            <option value="gemini-1.5-flash">Gemini 1.5 Flash (Fast)</option>
+                        </select>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="gemini-enabled" checked>
+                        <label for="gemini-enabled">Enabled</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="gemini-primary">
+                        <label for="gemini-primary">Set as Primary AI</label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Chat/Notifications Section -->
+        <section class="settings-section" id="chat-section">
+            <div class="section-header" onclick="toggleSection('chat')">
+                <h2>
+                    <span class="icon">&#128172;</span>
+                    Chat & Notifications
+                </h2>
+                <span class="toggle-icon" id="chat-toggle">&#9660;</span>
+            </div>
+            <div class="section-content" id="chat-content">
+                <p class="section-description">Configure chat platforms for real-time alert notifications.</p>
+
+                <div class="provider-selector">
+                    <label>Select Chat Platform:</label>
+                    <div class="provider-buttons">
+                        <button class="provider-btn" data-provider="teams" data-type="chat" onclick="selectProvider('chat', 'teams')">
+                            Microsoft Teams
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Teams Config -->
+                <div class="provider-config" id="chat-teams-config" style="display:none;">
+                    <h3>Microsoft Teams Configuration</h3>
+                    <div class="form-group">
+                        <label for="teams-webhook-url">Incoming Webhook URL</label>
+                        <input type="url" id="teams-webhook-url" placeholder="https://outlook.office.com/webhook/...">
+                        <span class="help-text">Create an incoming webhook in your Teams channel</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="teams-bot-app-id">Bot App ID (Optional)</label>
+                        <input type="text" id="teams-bot-app-id" placeholder="For interactive action buttons">
+                    </div>
+                    <div class="form-group">
+                        <label for="teams-bot-app-secret">Bot App Secret (Optional)</label>
+                        <input type="password" id="teams-bot-app-secret" placeholder="Azure AD app secret">
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="teams-enabled" checked>
+                        <label for="teams-enabled">Enabled</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="teams-primary" checked>
+                        <label for="teams-primary">Set as Primary Chat</label>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Save Button -->
+        <div class="save-section">
+            <button class="save-btn" onclick="saveAllSettings()">
+                Save All Settings
+            </button>
+            <button class="test-btn" onclick="testConnections()">
+                Test Connections
+            </button>
+        </div>
+
+        <footer>
+            <p>Security Alerting Tool v0.1.0 | <a href="/docs">API Documentation</a> | <a href="/health">Health Check</a></p>
+        </footer>
+    </div>
+
+    <script src="/static/js/settings.js"></script>
+</body>
+</html>

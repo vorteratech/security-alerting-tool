@@ -6,11 +6,13 @@ analyzing with AI, and dispatching to PSA and chat platforms.
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api import webhooks, actions, settings_api, teams_bot
 from .config.logging import get_logger, setup_logging
@@ -86,6 +88,27 @@ def create_app() -> FastAPI:
     app.include_router(actions.router, prefix="/actions", tags=["Actions"])
     app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
     app.include_router(teams_bot.router, prefix="/api/v1", tags=["Teams Bot"])
+
+    # Mount static files
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    # Template directory for HTML pages
+    templates_dir = Path(__file__).parent / "templates"
+
+    # Settings page route
+    @app.get("/", tags=["UI"])
+    @app.get("/settings", tags=["UI"])
+    async def settings_page():
+        """Serve the settings configuration page."""
+        template_path = templates_dir / "settings.html"
+        if template_path.exists():
+            return FileResponse(str(template_path), media_type="text/html")
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Settings page not found"}
+        )
 
     # Global exception handler
     @app.exception_handler(Exception)
