@@ -177,12 +177,17 @@ class IntegrationTester:
         api_secret: Optional[str],
         config: dict,
     ) -> dict[str, Any]:
-        """Test PSA connectivity by creating a test ticket."""
+        """Test PSA connectivity."""
         base_url = config.get("base_url", "")
 
         if provider == "superops":
+            # SuperOps uses GraphQL API
             if not base_url:
-                base_url = "https://api.superops.ai"
+                base_url = "https://api.superops.ai/msp"
+
+            # Ensure URL ends with /msp for GraphQL endpoint
+            if not base_url.endswith("/msp"):
+                base_url = base_url.rstrip("/") + "/msp"
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 headers = {
@@ -190,43 +195,65 @@ class IntegrationTester:
                     "Content-Type": "application/json",
                 }
 
-                # Create a test ticket
-                test_ticket = {
-                    "subject": "[TEST] Security Alerting Tool - Connection Test",
-                    "description": (
-                        "This is an automated test ticket created by the Security Alerting Tool "
-                        "to verify PSA connectivity. This ticket can be safely deleted.\n\n"
-                        f"Test performed at: {datetime.utcnow().isoformat()} UTC"
-                    ),
-                    "priority": "low",
-                    "type": "incident",
-                    "source": "api",
-                    "tags": ["test", "security-alerting-tool", "auto-generated"],
+                # Simple GraphQL query to test connectivity - just fetch first ticket
+                graphql_query = {
+                    "query": """
+                        query getTicketList($input: ListInfoInput!) {
+                            getTicketList(input: $input) {
+                                listInfo {
+                                    totalRecords
+                                }
+                            }
+                        }
+                    """,
+                    "variables": {
+                        "input": {
+                            "pageNumber": 1,
+                            "pageSize": 1
+                        }
+                    }
                 }
 
-                # Add default client if configured
-                if config.get("default_client_id"):
-                    test_ticket["client_id"] = config["default_client_id"]
-
                 response = await client.post(
-                    f"{base_url}/v1/tickets",
+                    base_url,
                     headers=headers,
-                    json=test_ticket,
+                    json=graphql_query,
                 )
-                response.raise_for_status()
+
+                # Check for errors
+                if response.status_code != 200:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("message", response.text[:200])
+                    except Exception:
+                        error_msg = response.text[:200]
+                    return {
+                        "success": False,
+                        "message": f"SuperOps API error ({response.status_code}): {error_msg}",
+                        "details": {"status_code": response.status_code},
+                    }
+
                 data = response.json()
 
-                ticket_data = data.get("data", data)
-                ticket_id = ticket_data.get("id", "")
-                ticket_number = ticket_data.get("ticket_number", ticket_data.get("number", "N/A"))
+                # Check for GraphQL errors
+                if "errors" in data:
+                    error_msg = data["errors"][0].get("message", str(data["errors"]))
+                    return {
+                        "success": False,
+                        "message": f"SuperOps GraphQL error: {error_msg}",
+                        "details": {"errors": data["errors"]},
+                    }
+
+                # Success - extract ticket count
+                ticket_data = data.get("data", {}).get("getTicketList", {})
+                total_tickets = ticket_data.get("listInfo", {}).get("totalRecords", 0)
 
                 return {
                     "success": True,
-                    "message": f"Test ticket created successfully: #{ticket_number}",
+                    "message": "SuperOps API connection successful",
                     "details": {
-                        "ticket_id": ticket_id,
-                        "ticket_number": ticket_number,
-                        "note": "A test ticket was created in your PSA. You can delete it manually.",
+                        "total_tickets": total_tickets,
+                        "api_type": "GraphQL",
                     },
                 }
 
