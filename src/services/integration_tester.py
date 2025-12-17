@@ -199,13 +199,13 @@ class IntegrationTester:
                     "CustomerSubDomain": subdomain,
                 }
 
-                # Simple GraphQL query to test connectivity - just fetch first ticket
+                # Simple GraphQL query to test connectivity - just fetch one ticket
                 graphql_query = {
                     "query": """
                         query getTicketList($input: ListInfoInput!) {
                             getTicketList(input: $input) {
-                                listInfo {
-                                    totalRecords
+                                tickets {
+                                    ticketId
                                 }
                             }
                         }
@@ -248,15 +248,14 @@ class IntegrationTester:
                         "details": {"errors": data["errors"]},
                     }
 
-                # Success - extract ticket count
-                ticket_data = data.get("data", {}).get("getTicketList", {})
-                total_tickets = ticket_data.get("listInfo", {}).get("totalRecords", 0)
+                # Success - count tickets returned
+                tickets = data.get("data", {}).get("getTicketList", {}).get("tickets", [])
 
                 return {
                     "success": True,
                     "message": "SuperOps API connection successful",
                     "details": {
-                        "total_tickets": total_tickets,
+                        "tickets_found": len(tickets),
                         "api_type": "GraphQL",
                     },
                 }
