@@ -199,17 +199,23 @@ class IntegrationTester:
                     "CustomerSubDomain": subdomain,
                 }
 
-                # Simple GraphQL query to test connectivity - just fetch one ticket
+                # Simple GraphQL query to test connectivity - fetch one ticket
                 graphql_query = {
                     "query": """
-                        {
-                            getTicketList {
+                        query getTicketList($input: ListInfoInput!) {
+                            getTicketList(input: $input) {
                                 tickets {
                                     ticketId
                                 }
                             }
                         }
-                    """
+                    """,
+                    "variables": {
+                        "input": {
+                            "page": 1,
+                            "pageSize": 1
+                        }
+                    }
                 }
 
                 response = await client.post(
