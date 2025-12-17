@@ -37,7 +37,7 @@ const providerFields = {
         type: 'psa',
         provider: 'superops',
         fields: {
-            'superops-url': { configKey: 'base_url', type: 'config' },
+            'superops-subdomain': { configKey: 'subdomain', type: 'config' },
             'superops-api-key': { configKey: 'api_key', type: 'secret' },
             'superops-default-client': { configKey: 'default_client_id', type: 'config' },
             'superops-enabled': { configKey: 'enabled', type: 'checkbox' },

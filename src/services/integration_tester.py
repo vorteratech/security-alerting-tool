@@ -182,17 +182,21 @@ class IntegrationTester:
 
         if provider == "superops":
             # SuperOps uses GraphQL API
-            if not base_url:
-                base_url = "https://api.superops.ai/msp"
+            base_url = "https://api.superops.ai/msp"
+            subdomain = config.get("subdomain", "")
 
-            # Ensure URL ends with /msp for GraphQL endpoint
-            if not base_url.endswith("/msp"):
-                base_url = base_url.rstrip("/") + "/msp"
+            if not subdomain:
+                return {
+                    "success": False,
+                    "message": "Customer subdomain not configured. Find it in SuperOps Settings > Company Information.",
+                    "details": None,
+                }
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 headers = {
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
+                    "CustomerSubDomain": subdomain,
                 }
 
                 # Simple GraphQL query to test connectivity - just fetch first ticket
