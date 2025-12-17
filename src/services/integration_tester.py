@@ -346,7 +346,8 @@ class IntegrationTester:
 
             # Check for GraphQL errors
             if "errors" in data:
-                error_msg = data["errors"][0].get("message", str(data["errors"]))
+                first_error = data["errors"][0]
+                error_msg = first_error.get("message") or first_error.get("extensions", {}).get("code") or str(first_error)
                 return {
                     "success": False,
                     "message": f"SuperOps GraphQL error: {error_msg}",
