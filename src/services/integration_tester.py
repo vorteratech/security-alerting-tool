@@ -278,6 +278,7 @@ class IntegrationTester:
 
         base_url = "https://api.superops.ai/msp"
         subdomain = config.get("subdomain", "")
+        default_client_id = config.get("default_client_id", "")
 
         if not subdomain:
             return {
@@ -286,7 +287,14 @@ class IntegrationTester:
                 "details": None,
             }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        if not default_client_id:
+            return {
+                "success": False,
+                "message": "Default Client ID not configured. Set it in SuperOps settings to create test tickets.",
+                "details": None,
+            }
+
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -294,6 +302,7 @@ class IntegrationTester:
             }
 
             # GraphQL mutation to create a ticket
+            # Client field is required - use the configured default_client_id
             graphql_mutation = {
                 "query": """
                     mutation createTicket($input: CreateTicketInput!) {
@@ -308,11 +317,14 @@ class IntegrationTester:
                         "subject": "[TEST] Security Alerting Tool - Connection Test",
                         "description": f"This is an automated test ticket created by the Security Alerting Tool to verify PSA connectivity.\\n\\nThis ticket can be safely deleted.\\n\\nTest performed at: {datetime.utcnow().isoformat()} UTC",
                         "priority": "LOW",
+                        "client": {
+                            "clientId": default_client_id
+                        }
                     }
                 }
             }
 
-            response = await client.post(
+            response = await http_client.post(
                 base_url,
                 headers=headers,
                 json=graphql_mutation,
