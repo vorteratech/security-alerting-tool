@@ -100,6 +100,8 @@ const providerFields = {
             'teams-webhook-url': { configKey: 'webhook_url', type: 'config' },
             'teams-bot-app-id': { configKey: 'bot_app_id', type: 'config' },
             'teams-bot-app-secret': { configKey: 'api_secret', type: 'secret' },
+            'teams-service-url': { configKey: 'service_url', type: 'config' },
+            'teams-conversation-id': { configKey: 'conversation_id', type: 'config' },
             'teams-enabled': { configKey: 'enabled', type: 'checkbox' },
             'teams-primary': { configKey: 'is_primary', type: 'checkbox' }
         }

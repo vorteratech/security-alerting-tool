@@ -337,10 +337,21 @@
                     <div class="form-group">
                         <label for="teams-bot-app-id">Bot App ID (Optional)</label>
                         <input type="text" id="teams-bot-app-id" placeholder="For interactive action buttons">
+                        <span class="help-text">Azure Bot registration App ID</span>
                     </div>
                     <div class="form-group">
                         <label for="teams-bot-app-secret">Bot App Secret (Optional)</label>
                         <input type="password" id="teams-bot-app-secret" placeholder="Azure AD app secret">
+                    </div>
+                    <div class="form-group">
+                        <label for="teams-service-url">Bot Service URL (Optional)</label>
+                        <input type="url" id="teams-service-url" placeholder="https://smba.trafficmanager.net/amer/">
+                        <span class="help-text">Captured when bot is installed in channel. Check bot logs.</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="teams-conversation-id">Bot Channel ID (Optional)</label>
+                        <input type="text" id="teams-conversation-id" placeholder="19:xxxxx@thread.tacv2">
+                        <span class="help-text">Channel conversation ID. Captured from bot installation.</span>
                     </div>
                     <div class="form-group checkbox-group">
                         <input type="checkbox" id="teams-enabled" checked>

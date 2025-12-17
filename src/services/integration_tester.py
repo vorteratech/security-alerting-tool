@@ -598,8 +598,11 @@ class IntegrationTester:
 
             # If bot credentials are configured, use Bot Framework
             elif bot_app_id and api_secret:
+                service_url = config.get("service_url", "")
+                conversation_id = config.get("conversation_id", "")
+
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    # Get Bot Framework token to verify credentials
+                    # Get Bot Framework token
                     token_response = await client.post(
                         "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token",
                         data={
@@ -610,13 +613,59 @@ class IntegrationTester:
                         },
                     )
                     token_response.raise_for_status()
+                    token_data = token_response.json()
+                    access_token = token_data.get("access_token")
 
+                    # If service URL and conversation ID are configured, send a test message
+                    if service_url and conversation_id:
+                        # Send message via Bot Framework
+                        message_url = f"{service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities"
+
+                        test_message = {
+                            "type": "message",
+                            "text": f"**Security Alerting Tool - Bot Test**\n\nConnection test successful!\n\nTest performed at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                        }
+
+                        msg_response = await client.post(
+                            message_url,
+                            headers={
+                                "Authorization": f"Bearer {access_token}",
+                                "Content-Type": "application/json",
+                            },
+                            json=test_message,
+                        )
+
+                        if msg_response.status_code in (200, 201):
+                            return {
+                                "success": True,
+                                "message": "Teams Bot test message sent successfully",
+                                "details": {
+                                    "type": "bot_framework",
+                                    "note": "Check your Teams channel for the test message",
+                                },
+                            }
+                        else:
+                            try:
+                                error_data = msg_response.json()
+                                error_msg = error_data.get("message", msg_response.text[:200])
+                            except Exception:
+                                error_msg = msg_response.text[:200]
+                            return {
+                                "success": False,
+                                "message": f"Bot auth OK but message failed ({msg_response.status_code}): {error_msg}",
+                                "details": {
+                                    "type": "bot_framework",
+                                    "note": "Check Service URL and Channel ID configuration",
+                                },
+                            }
+
+                    # No service URL/conversation ID - just validate credentials
                     return {
                         "success": True,
-                        "message": "Teams Bot credentials validated successfully",
+                        "message": "Teams Bot credentials validated (configure Service URL & Channel ID to send test message)",
                         "details": {
                             "type": "bot_framework",
-                            "note": "Bot can send messages to channels where it's installed",
+                            "note": "Add Service URL and Channel ID to enable bot messaging",
                         },
                     }
 
