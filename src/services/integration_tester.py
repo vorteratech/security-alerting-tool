@@ -202,20 +202,14 @@ class IntegrationTester:
                 # Simple GraphQL query to test connectivity - just fetch one ticket
                 graphql_query = {
                     "query": """
-                        query getTicketList($input: ListInfoInput!) {
-                            getTicketList(input: $input) {
+                        {
+                            getTicketList {
                                 tickets {
                                     ticketId
                                 }
                             }
                         }
-                    """,
-                    "variables": {
-                        "input": {
-                            "pageNumber": 1,
-                            "pageSize": 1
-                        }
-                    }
+                    """
                 }
 
                 response = await client.post(
