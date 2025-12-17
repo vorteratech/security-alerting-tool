@@ -301,6 +301,42 @@ class IntegrationTester:
                 "CustomerSubDomain": subdomain,
             }
 
+            # First, query the schema to find ClientIdentifierInput fields
+            introspection_query = {
+                "query": """
+                    {
+                        __type(name: "ClientIdentifierInput") {
+                            name
+                            inputFields {
+                                name
+                                type {
+                                    name
+                                    kind
+                                }
+                            }
+                        }
+                    }
+                """
+            }
+
+            intro_response = await http_client.post(
+                base_url,
+                headers=headers,
+                json=introspection_query,
+            )
+
+            if intro_response.status_code == 200:
+                intro_data = intro_response.json()
+                type_info = intro_data.get("data", {}).get("__type")
+                if type_info:
+                    fields = type_info.get("inputFields", [])
+                    field_names = [f["name"] for f in fields]
+                    return {
+                        "success": False,
+                        "message": f"ClientIdentifierInput fields discovered: {field_names}",
+                        "details": {"fields": fields},
+                    }
+
             # GraphQL mutation to create a ticket
             # Client field is required - use the configured default_client_id
             graphql_mutation = {
