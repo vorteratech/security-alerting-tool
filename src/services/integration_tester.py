@@ -200,22 +200,17 @@ class IntegrationTester:
                 }
 
                 # Simple GraphQL query to test connectivity - fetch one ticket
+                # Using inline input as per SuperOps documentation
                 graphql_query = {
                     "query": """
-                        query getTicketList($input: ListInfoInput!) {
-                            getTicketList(input: $input) {
+                        {
+                            getTicketList(input: { pageNumber: 1, pageSize: 1 }) {
                                 tickets {
                                     ticketId
                                 }
                             }
                         }
-                    """,
-                    "variables": {
-                        "input": {
-                            "page": 1,
-                            "pageSize": 1
-                        }
-                    }
+                    """
                 }
 
                 response = await client.post(
