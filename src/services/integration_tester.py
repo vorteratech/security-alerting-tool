@@ -200,11 +200,11 @@ class IntegrationTester:
                 }
 
                 # Simple GraphQL query to test connectivity - fetch one ticket
-                # Using inline input as per SuperOps documentation
+                # Using inline input - field is 'page' not 'pageNumber'
                 graphql_query = {
                     "query": """
                         {
-                            getTicketList(input: { pageNumber: 1, pageSize: 1 }) {
+                            getTicketList(input: { page: 1, pageSize: 1 }) {
                                 tickets {
                                     ticketId
                                 }
