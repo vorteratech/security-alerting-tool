@@ -591,3 +591,45 @@ footer a:hover {
 .test-summary.all-failed {
     color: var(--danger-color);
 }
+
+/* Export/Import Section */
+.export-import-section {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.export-btn, .import-btn {
+    padding: 0.6rem 1.2rem;
+    font-size: 0.9rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid var(--border-color);
+    background-color: var(--card-bg);
+    color: var(--text-primary);
+}
+
+.export-btn:hover, .import-btn:hover {
+    background-color: var(--input-bg);
+    border-color: var(--primary-color);
+}
+
+/* Secondary modal button */
+.modal-btn.secondary {
+    background-color: var(--success-color);
+    margin-right: auto;
+}
+
+.modal-btn.secondary:hover {
+    background-color: #1a9f4a;
+}
+
+.modal-btn.secondary:disabled {
+    background-color: var(--border-color);
+    cursor: not-allowed;
+    opacity: 0.6;
+}

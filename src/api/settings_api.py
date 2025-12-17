@@ -343,3 +343,143 @@ async def test_integration(
         message=test_result["message"],
         details=test_result.get("details"),
     )
+
+
+class ExportData(BaseModel):
+    """Model for exported settings."""
+
+    version: str = "1.0"
+    integrations: list[dict[str, Any]]
+
+
+class ImportResult(BaseModel):
+    """Result of import operation."""
+
+    imported: int
+    errors: list[str]
+
+
+@router.get("/export", response_model=ExportData)
+async def export_settings(
+    db: AsyncSession = Depends(get_db_session),
+) -> ExportData:
+    """
+    Export all settings including encrypted credentials.
+
+    The exported data includes encrypted API keys which can only
+    be decrypted on a system with the same MASTER_ENCRYPTION_KEY.
+    """
+    query = select(IntegrationSetting).order_by(
+        IntegrationSetting.integration_type, IntegrationSetting.provider
+    )
+    result = await db.execute(query)
+    settings = result.scalars().all()
+
+    integrations = []
+    for setting in settings:
+        integrations.append({
+            "integration_type": setting.integration_type,
+            "provider": setting.provider,
+            "enabled": setting.enabled,
+            "is_primary": setting.is_primary,
+            "config_json": setting.config_json,
+            "api_key_encrypted": setting.api_key_encrypted,
+            "api_secret_encrypted": setting.api_secret_encrypted,
+        })
+
+    return ExportData(integrations=integrations)
+
+
+@router.post("/import", response_model=ImportResult)
+async def import_settings(
+    data: ExportData,
+    db: AsyncSession = Depends(get_db_session),
+) -> ImportResult:
+    """
+    Import settings from an export file.
+
+    This will overwrite any existing settings with the same
+    integration_type and provider.
+    """
+    imported = 0
+    errors = []
+
+    for integration in data.integrations:
+        try:
+            # Get or create setting
+            query = select(IntegrationSetting).where(
+                and_(
+                    IntegrationSetting.integration_type == integration["integration_type"],
+                    IntegrationSetting.provider == integration["provider"],
+                )
+            )
+            result = await db.execute(query)
+            setting = result.scalar_one_or_none()
+
+            if setting is None:
+                setting = IntegrationSetting(
+                    integration_type=integration["integration_type"],
+                    provider=integration["provider"],
+                )
+                db.add(setting)
+
+            # Update all fields
+            setting.enabled = integration.get("enabled", True)
+            setting.is_primary = integration.get("is_primary", False)
+            setting.config_json = integration.get("config_json")
+            setting.api_key_encrypted = integration.get("api_key_encrypted")
+            setting.api_secret_encrypted = integration.get("api_secret_encrypted")
+
+            imported += 1
+        except Exception as e:
+            errors.append(f"{integration.get('provider', 'unknown')}: {str(e)}")
+
+    await db.commit()
+
+    logger.info("Settings imported", imported=imported, errors=len(errors))
+
+    return ImportResult(imported=imported, errors=errors)
+
+
+@router.post("/psa/superops/test-ticket", response_model=TestResult)
+async def send_superops_test_ticket(
+    db: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> TestResult:
+    """
+    Create a test ticket in SuperOps.
+
+    This creates an actual ticket that can be deleted manually.
+    """
+    from ..services.integration_tester import IntegrationTester
+
+    # Get SuperOps settings
+    query = select(IntegrationSetting).where(
+        and_(
+            IntegrationSetting.integration_type == "psa",
+            IntegrationSetting.provider == "superops",
+        )
+    )
+    result = await db.execute(query)
+    setting = result.scalar_one_or_none()
+
+    if not setting:
+        return TestResult(
+            success=False,
+            message="SuperOps integration not configured",
+        )
+
+    if not setting.api_key_encrypted:
+        return TestResult(
+            success=False,
+            message="No API key configured for SuperOps",
+        )
+
+    tester = IntegrationTester(settings)
+    test_result = await tester.send_test_ticket(setting)
+
+    return TestResult(
+        success=test_result["success"],
+        message=test_result["message"],
+        details=test_result.get("details"),
+    )

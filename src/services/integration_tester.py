@@ -257,6 +257,105 @@ class IntegrationTester:
 
         return {"success": False, "message": f"Unknown PSA provider: {provider}", "details": None}
 
+    async def send_test_ticket(
+        self, setting: IntegrationSetting
+    ) -> dict[str, Any]:
+        """
+        Create a test ticket in SuperOps.
+
+        Returns dict with success, message, and details.
+        """
+        from datetime import datetime
+
+        api_key, api_secret, config = self._decrypt_credentials(setting)
+
+        if setting.provider != "superops":
+            return {
+                "success": False,
+                "message": "Test ticket only supported for SuperOps",
+                "details": None,
+            }
+
+        base_url = "https://api.superops.ai/msp"
+        subdomain = config.get("subdomain", "")
+
+        if not subdomain:
+            return {
+                "success": False,
+                "message": "Customer subdomain not configured",
+                "details": None,
+            }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "CustomerSubDomain": subdomain,
+            }
+
+            # GraphQL mutation to create a ticket
+            graphql_mutation = {
+                "query": """
+                    mutation createTicket($input: CreateTicketInput!) {
+                        createTicket(input: $input) {
+                            ticketId
+                            displayId
+                        }
+                    }
+                """,
+                "variables": {
+                    "input": {
+                        "subject": "[TEST] Security Alerting Tool - Connection Test",
+                        "description": f"This is an automated test ticket created by the Security Alerting Tool to verify PSA connectivity.\\n\\nThis ticket can be safely deleted.\\n\\nTest performed at: {datetime.utcnow().isoformat()} UTC",
+                        "priority": "LOW",
+                    }
+                }
+            }
+
+            response = await client.post(
+                base_url,
+                headers=headers,
+                json=graphql_mutation,
+            )
+
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get("message", response.text[:200])
+                except Exception:
+                    error_msg = response.text[:200]
+                return {
+                    "success": False,
+                    "message": f"SuperOps API error ({response.status_code}): {error_msg}",
+                    "details": {"status_code": response.status_code},
+                }
+
+            data = response.json()
+
+            # Check for GraphQL errors
+            if "errors" in data:
+                error_msg = data["errors"][0].get("message", str(data["errors"]))
+                return {
+                    "success": False,
+                    "message": f"SuperOps GraphQL error: {error_msg}",
+                    "details": {"errors": data["errors"]},
+                }
+
+            # Success - get ticket info
+            ticket = data.get("data", {}).get("createTicket", {})
+            ticket_id = ticket.get("ticketId", "")
+            display_id = ticket.get("displayId", "")
+
+            return {
+                "success": True,
+                "message": f"Test ticket created: #{display_id}",
+                "details": {
+                    "ticket_id": ticket_id,
+                    "display_id": display_id,
+                    "note": "A test ticket was created in SuperOps. You can delete it manually.",
+                },
+            }
+
     async def _test_threat_intel(
         self,
         provider: str,

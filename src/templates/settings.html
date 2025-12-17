@@ -364,6 +364,17 @@
             </button>
         </div>
 
+        <!-- Export/Import Section -->
+        <div class="export-import-section">
+            <button class="export-btn" onclick="exportSettings()">
+                Export Settings
+            </button>
+            <button class="import-btn" onclick="document.getElementById('import-file').click()">
+                Import Settings
+            </button>
+            <input type="file" id="import-file" accept=".json" style="display:none" onchange="importSettings(this)">
+        </div>
+
         <footer>
             <p>Security Alerting Tool v0.1.0 | <a href="/docs">API Documentation</a> | <a href="/health">Health Check</a></p>
         </footer>
@@ -384,6 +395,9 @@
                 </div>
             </div>
             <div class="modal-footer" id="modal-footer" style="display:none;">
+                <button class="modal-btn secondary" id="send-test-ticket-btn" onclick="sendTestTicket()" style="display:none;" disabled>
+                    Send Test Ticket
+                </button>
                 <button class="modal-btn" onclick="closeTestModal()">OK</button>
             </div>
         </div>

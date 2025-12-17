@@ -386,11 +386,17 @@ async function testConnections() {
     // Show modal with progress
     showTestModal();
 
+    // Hide test ticket button initially
+    const testTicketBtn = document.getElementById('send-test-ticket-btn');
+    testTicketBtn.style.display = 'none';
+    testTicketBtn.disabled = true;
+
     const testBtn = document.querySelector('.test-btn');
     testBtn.disabled = true;
 
     let passed = 0;
     let failed = 0;
+    let superopsTestPassed = false;
 
     // Test each provider and show results as they come in
     for (const providerKey of configuredProviders) {
@@ -412,6 +418,10 @@ async function testConnections() {
 
             if (result.success) {
                 passed++;
+                // Track if SuperOps test passed
+                if (mapping.provider === 'superops') {
+                    superopsTestPassed = true;
+                }
             } else {
                 failed++;
             }
@@ -424,6 +434,12 @@ async function testConnections() {
             );
             failed++;
         }
+    }
+
+    // Show "Send Test Ticket" button if SuperOps test passed
+    if (superopsTestPassed) {
+        testTicketBtn.style.display = 'inline-block';
+        testTicketBtn.disabled = false;
     }
 
     // Show summary and enable OK button
@@ -478,6 +494,102 @@ async function loadExistingSettings() {
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
+}
+
+/**
+ * Export all settings to a JSON file
+ */
+async function exportSettings() {
+    try {
+        const response = await fetch('/api/settings/export');
+        if (!response.ok) {
+            throw new Error('Failed to export settings');
+        }
+
+        const data = await response.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `security-alerting-settings-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showNotification('Settings exported successfully', 'success');
+    } catch (error) {
+        showNotification(`Export failed: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Import settings from a JSON file
+ */
+async function importSettings(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        const response = await fetch('/api/settings/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to import settings');
+        }
+
+        const result = await response.json();
+        showNotification(`Settings imported: ${result.imported} integrations`, 'success');
+
+        // Reload the page to show imported settings
+        setTimeout(() => location.reload(), 1500);
+    } catch (error) {
+        showNotification(`Import failed: ${error.message}`, 'error');
+    }
+
+    // Clear the file input
+    input.value = '';
+}
+
+/**
+ * Send a test ticket to SuperOps
+ */
+async function sendTestTicket() {
+    const btn = document.getElementById('send-test-ticket-btn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    try {
+        const response = await fetch('/api/settings/psa/superops/test-ticket', {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            addTestResult('SuperOps Test Ticket', true, result.message, result.details);
+            showNotification(result.message, 'success');
+        } else {
+            addTestResult('SuperOps Test Ticket', false, result.message, result.details);
+            showNotification(result.message, 'error');
+        }
+    } catch (error) {
+        addTestResult('SuperOps Test Ticket', false, error.message, null);
+        showNotification(`Failed to send test ticket: ${error.message}`, 'error');
+    }
+
+    btn.disabled = false;
+    btn.textContent = originalText;
 }
 
 // Initialize on page load
