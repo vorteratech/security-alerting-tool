@@ -219,6 +219,9 @@ async function saveProvider(providerKey) {
     const data = getProviderData(providerKey);
     if (!data) return { success: false, error: 'Could not get form data' };
 
+    // Debug logging
+    console.log(`[Save] ${providerKey}:`, JSON.stringify(data, null, 2));
+
     try {
         const response = await fetch(`/api/settings/${mapping.type}/${mapping.provider}`, {
             method: 'PUT',

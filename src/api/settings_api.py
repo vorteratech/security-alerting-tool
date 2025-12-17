@@ -165,23 +165,35 @@ async def upsert_integration(
     result = await db.execute(query)
     setting = result.scalar_one_or_none()
 
-    if setting is None:
+    is_new = setting is None
+    if is_new:
         setting = IntegrationSetting(
             integration_type=integration_type,
             provider=provider,
         )
         db.add(setting)
 
+    # Log incoming config for debugging
+    logger.info(
+        "Saving integration",
+        integration_type=integration_type,
+        provider=provider,
+        is_new=is_new,
+        incoming_config=config.config,
+        has_api_key=bool(config.api_key),
+    )
+
     # Update fields
     setting.enabled = config.enabled
     setting.is_primary = config.is_primary
-    # Only update config_json if new config data is provided
-    # This preserves existing config when only updating enabled/is_primary
+
+    # Always update config_json if any config data is provided
     if config.config:
         # Merge with existing config to preserve values not sent in this request
         existing_config = json.loads(setting.config_json) if setting.config_json else {}
         existing_config.update(config.config)
         setting.config_json = json.dumps(existing_config)
+        logger.info("Updated config_json", new_config=existing_config)
 
     # Encrypt API credentials if provided
     if config.api_key or config.api_secret:
@@ -219,12 +231,14 @@ async def upsert_integration(
         )
 
     await db.flush()
+    await db.commit()
 
     logger.info(
-        "Integration updated",
+        "Integration saved",
         integration_type=integration_type,
         provider=provider,
         enabled=config.enabled,
+        final_config=setting.config_json,
     )
 
     return integration_to_response(setting)
