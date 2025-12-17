@@ -362,29 +362,47 @@ class ImportResult(BaseModel):
 @router.get("/export", response_model=ExportData)
 async def export_settings(
     db: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
 ) -> ExportData:
     """
-    Export all settings including encrypted credentials.
+    Export all settings with decrypted credentials for easy backup/restore.
 
-    The exported data includes encrypted API keys which can only
-    be decrypted on a system with the same MASTER_ENCRYPTION_KEY.
+    WARNING: This exports plain-text API keys. Only use for testing.
     """
+    encryption = create_encryption_service(settings.master_encryption_key)
+
     query = select(IntegrationSetting).order_by(
         IntegrationSetting.integration_type, IntegrationSetting.provider
     )
     result = await db.execute(query)
-    settings = result.scalars().all()
+    db_settings = result.scalars().all()
 
     integrations = []
-    for setting in settings:
+    for setting in db_settings:
+        # Decrypt API keys for export
+        api_key = None
+        api_secret = None
+        if setting.api_key_encrypted:
+            try:
+                api_key = encryption.decrypt(setting.api_key_encrypted)
+            except Exception:
+                pass
+        if setting.api_secret_encrypted:
+            try:
+                api_secret = encryption.decrypt(setting.api_secret_encrypted)
+            except Exception:
+                pass
+
+        config = json.loads(setting.config_json) if setting.config_json else {}
+
         integrations.append({
             "integration_type": setting.integration_type,
             "provider": setting.provider,
             "enabled": setting.enabled,
             "is_primary": setting.is_primary,
-            "config_json": setting.config_json,
-            "api_key_encrypted": setting.api_key_encrypted,
-            "api_secret_encrypted": setting.api_secret_encrypted,
+            "config": config,
+            "api_key": api_key,
+            "api_secret": api_secret,
         })
 
     return ExportData(integrations=integrations)
@@ -394,13 +412,16 @@ async def export_settings(
 async def import_settings(
     data: ExportData,
     db: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
 ) -> ImportResult:
     """
     Import settings from an export file.
 
     This will overwrite any existing settings with the same
-    integration_type and provider.
+    integration_type and provider. Plain-text API keys will be
+    encrypted before storage.
     """
+    encryption = create_encryption_service(settings.master_encryption_key)
     imported = 0
     errors = []
 
@@ -423,12 +444,26 @@ async def import_settings(
                 )
                 db.add(setting)
 
-            # Update all fields
+            # Update basic fields
             setting.enabled = integration.get("enabled", True)
             setting.is_primary = integration.get("is_primary", False)
-            setting.config_json = integration.get("config_json")
-            setting.api_key_encrypted = integration.get("api_key_encrypted")
-            setting.api_secret_encrypted = integration.get("api_secret_encrypted")
+
+            # Handle config - accept both dict and JSON string
+            config = integration.get("config")
+            if config is not None:
+                if isinstance(config, dict):
+                    setting.config_json = json.dumps(config)
+                else:
+                    setting.config_json = config
+
+            # Encrypt API keys if provided as plain text
+            api_key = integration.get("api_key")
+            api_secret = integration.get("api_secret")
+
+            if api_key:
+                setting.api_key_encrypted = encryption.encrypt(api_key)
+            if api_secret:
+                setting.api_secret_encrypted = encryption.encrypt(api_secret)
 
             imported += 1
         except Exception as e:
