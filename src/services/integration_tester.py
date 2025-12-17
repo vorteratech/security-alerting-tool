@@ -301,44 +301,8 @@ class IntegrationTester:
                 "CustomerSubDomain": subdomain,
             }
 
-            # First, query the schema to find ClientIdentifierInput fields
-            introspection_query = {
-                "query": """
-                    {
-                        __type(name: "ClientIdentifierInput") {
-                            name
-                            inputFields {
-                                name
-                                type {
-                                    name
-                                    kind
-                                }
-                            }
-                        }
-                    }
-                """
-            }
-
-            intro_response = await http_client.post(
-                base_url,
-                headers=headers,
-                json=introspection_query,
-            )
-
-            if intro_response.status_code == 200:
-                intro_data = intro_response.json()
-                type_info = intro_data.get("data", {}).get("__type")
-                if type_info:
-                    fields = type_info.get("inputFields", [])
-                    field_names = [f["name"] for f in fields]
-                    return {
-                        "success": False,
-                        "message": f"ClientIdentifierInput fields discovered: {field_names}",
-                        "details": {"fields": fields},
-                    }
-
             # GraphQL mutation to create a ticket
-            # Client field is required - use the configured default_client_id
+            # Client field is required - use accountId per SuperOps schema
             graphql_mutation = {
                 "query": """
                     mutation createTicket($input: CreateTicketInput!) {
@@ -354,7 +318,7 @@ class IntegrationTester:
                         "description": f"This is an automated test ticket created by the Security Alerting Tool to verify PSA connectivity.\\n\\nThis ticket can be safely deleted.\\n\\nTest performed at: {datetime.utcnow().isoformat()} UTC",
                         "priority": "LOW",
                         "client": {
-                            "identifier": default_client_id
+                            "accountId": default_client_id
                         }
                     }
                 }
