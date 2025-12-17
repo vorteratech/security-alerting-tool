@@ -301,49 +301,7 @@ class IntegrationTester:
                 "CustomerSubDomain": subdomain,
             }
 
-            # Introspect TicketSource type to find valid values
-            introspection_query = {
-                "query": """
-                    {
-                        __type(name: "TicketSource") {
-                            name
-                            kind
-                            enumValues { name }
-                            inputFields { name }
-                        }
-                    }
-                """
-            }
-
-            intro_response = await http_client.post(
-                base_url,
-                headers=headers,
-                json=introspection_query,
-            )
-
-            if intro_response.status_code == 200:
-                intro_data = intro_response.json()
-                type_info = intro_data.get("data", {}).get("__type")
-                if type_info:
-                    enum_values = type_info.get("enumValues", [])
-                    if enum_values:
-                        values = [v["name"] for v in enum_values]
-                        return {
-                            "success": False,
-                            "message": f"TicketSource enum values: {values}",
-                            "details": {"type_info": type_info},
-                        }
-                    input_fields = type_info.get("inputFields", [])
-                    if input_fields:
-                        fields = [f["name"] for f in input_fields]
-                        return {
-                            "success": False,
-                            "message": f"TicketSource input fields: {fields}",
-                            "details": {"type_info": type_info},
-                        }
-
             # GraphQL mutation to create a ticket
-            # Client field is required - use accountId per SuperOps schema
             graphql_mutation = {
                 "query": """
                     mutation createTicket($input: CreateTicketInput!) {
@@ -358,6 +316,7 @@ class IntegrationTester:
                         "subject": "[TEST] Security Alerting Tool - Connection Test",
                         "description": f"This is an automated test ticket created by the Security Alerting Tool to verify PSA connectivity.\\n\\nThis ticket can be safely deleted.\\n\\nTest performed at: {datetime.utcnow().isoformat()} UTC",
                         "priority": "LOW",
+                        "source": "INTEGRATION",
                         "client": {
                             "accountId": default_client_id
                         }
