@@ -165,8 +165,8 @@ class AlertFormatterService:
         if alert.process_name:
             description_parts.append(f"- **Process:** {alert.process_name}")
 
-        if alert.parent_process:
-            description_parts.append(f"- **Parent Process:** {alert.parent_process}")
+        if alert.parent_process_name:
+            description_parts.append(f"- **Parent Process:** {alert.parent_process_name}")
         description_parts.append("")
 
         # Network Activity (if present)

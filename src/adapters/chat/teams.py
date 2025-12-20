@@ -43,10 +43,11 @@ class TeamsAdapter(BaseChatAdapter):
 
     def __init__(
         self,
-        app_id: str,
-        app_password: str,
+        app_id: str = "",
+        app_password: str = "",
         tenant_id: str = "",
         service_url: str = "",
+        webhook_url: str = "",
         **kwargs
     ):
         """
@@ -57,6 +58,7 @@ class TeamsAdapter(BaseChatAdapter):
             app_password: Microsoft Bot App Password.
             tenant_id: Azure AD Tenant ID (optional for multi-tenant bots).
             service_url: Teams service URL (usually obtained from incoming activity).
+            webhook_url: Incoming webhook URL for simple notifications (no bot required).
             **kwargs: Additional config including:
                 - default_channel_id: Default channel to post to
                 - action_callback_url: Base URL for action callbacks
@@ -66,6 +68,7 @@ class TeamsAdapter(BaseChatAdapter):
         self.app_password = app_password
         self.tenant_id = tenant_id
         self.service_url = service_url or self.BOT_API_BASE
+        self.webhook_url = webhook_url
         self.default_channel_id = kwargs.get("default_channel_id", "")
         self.action_callback_url = kwargs.get("action_callback_url", "")
         self._client: Optional[httpx.AsyncClient] = None
@@ -362,6 +365,62 @@ class TeamsAdapter(BaseChatAdapter):
             "actions": actions,
         }
 
+    def _build_webhook_message_card(self, card: AlertCard) -> dict[str, Any]:
+        """
+        Build a MessageCard for webhook delivery.
+
+        Args:
+            card: The AlertCard to convert.
+
+        Returns:
+            MessageCard JSON structure for webhook.
+        """
+        severity_colors = {
+            "critical": "FF0000",
+            "high": "FFA500",
+            "medium": "FFFF00",
+            "low": "00FF00",
+            "info": "0076D7",
+        }
+        theme_color = severity_colors.get(card.severity.lower(), "0076D7")
+
+        facts = [
+            {"name": "Hostname", "value": card.hostname or "N/A"},
+            {"name": "IP Address", "value": card.endpoint_ip or "N/A"},
+            {"name": "User", "value": card.endpoint_user or "N/A"},
+            {"name": "Threat", "value": card.threat_name or "N/A"},
+            {"name": "Severity", "value": card.severity.upper()},
+        ]
+
+        if card.file_hash:
+            facts.append({"name": "File Hash", "value": card.file_hash[:16] + "..."})
+
+        if card.ticket_id:
+            facts.append({"name": "Ticket", "value": card.ticket_id})
+
+        sections = [
+            {
+                "activityTitle": card.title,
+                "activitySubtitle": f"Source: {card.source.upper()} | Alert ID: {card.source_alert_id}",
+                "facts": facts,
+                "markdown": True,
+            }
+        ]
+
+        if card.description:
+            sections.append({
+                "text": card.description[:500] + ("..." if len(card.description) > 500 else ""),
+                "markdown": True,
+            })
+
+        return {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "themeColor": theme_color,
+            "summary": card.title,
+            "sections": sections,
+        }
+
     async def send_alert(
         self,
         channel_id: str,
@@ -370,13 +429,58 @@ class TeamsAdapter(BaseChatAdapter):
         """
         Send an alert card to a Teams channel.
 
+        Uses webhook if configured, otherwise falls back to Bot Framework.
+
         Args:
-            channel_id: The Teams conversation/channel ID.
+            channel_id: The Teams conversation/channel ID (ignored for webhook).
             card: The AlertCard to render and send.
 
         Returns:
             MessageResult with sent message details.
         """
+        # Use webhook if available (simpler, no bot required)
+        if self.webhook_url:
+            return await self._send_via_webhook(card)
+
+        # Fall back to Bot Framework
+        return await self._send_via_bot(channel_id, card)
+
+    async def _send_via_webhook(self, card: AlertCard) -> MessageResult:
+        """Send alert via incoming webhook."""
+        try:
+            message_card = self._build_webhook_message_card(card)
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(self.webhook_url, json=message_card)
+                response.raise_for_status()
+
+            logger.info(
+                "Sent Teams alert via webhook",
+                alert_id=card.source_alert_id,
+            )
+
+            return MessageResult(
+                message_id=card.source_alert_id,  # Webhook doesn't return message ID
+                channel_id="webhook",
+                success=True,
+                action="sent",
+                sent_at=datetime.utcnow(),
+            )
+
+        except Exception as e:
+            logger.error(
+                "Failed to send Teams alert via webhook",
+                error=str(e),
+            )
+            return MessageResult(
+                message_id="",
+                channel_id="webhook",
+                success=False,
+                error=str(e),
+            )
+
+    async def _send_via_bot(self, channel_id: str, card: AlertCard) -> MessageResult:
+        """Send alert via Bot Framework."""
         try:
             client = await self._get_client()
 
@@ -402,7 +506,7 @@ class TeamsAdapter(BaseChatAdapter):
             message_id = data.get("id", "")
 
             logger.info(
-                "Sent Teams alert card",
+                "Sent Teams alert card via bot",
                 channel_id=channel_id,
                 message_id=message_id,
                 alert_id=card.source_alert_id,
@@ -419,7 +523,7 @@ class TeamsAdapter(BaseChatAdapter):
 
         except Exception as e:
             logger.error(
-                "Failed to send Teams alert",
+                "Failed to send Teams alert via bot",
                 channel_id=channel_id,
                 error=str(e),
             )

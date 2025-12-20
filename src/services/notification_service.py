@@ -115,10 +115,11 @@ class NotificationService:
                 app_password=app_password,
                 tenant_id=config.get("tenant_id", ""),
                 service_url=config.get("service_url", ""),
-                default_channel_id=config.get("default_channel_id", ""),
+                webhook_url=config.get("webhook_url", ""),
+                default_channel_id=config.get("conversation_id", ""),
                 action_callback_url=self.settings.action_callback_base_url,
             )
-            self._default_channel = config.get("default_channel_id", "")
+            self._default_channel = config.get("conversation_id", "") or "webhook"
         else:
             logger.error(f"Unknown chat provider: {provider}")
             return None
