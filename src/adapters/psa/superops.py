@@ -180,7 +180,7 @@ class SuperOpsAdapter(BasePSAAdapter):
                 return TicketResult(
                     ticket_id=ticket_id,
                     ticket_number=str(display_id),
-                    ticket_url=f"https://{self.subdomain}.superops.ai/tickets/{ticket_id}",
+                    ticket_url=f"https://{self.subdomain}.superops.ai/#/tickets/{ticket_id}/ticket",
                     success=True,
                     action="created",
                     title=title,

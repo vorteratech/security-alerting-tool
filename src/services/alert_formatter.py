@@ -162,35 +162,35 @@ class AlertFormatterService:
 
         # Alert Overview
         lines.append("<h3>📋 Alert Overview</h3>")
-        lines.append("<table>")
-        lines.append(f"<tr><td><b>Severity</b></td><td><b>{alert.severity.upper()}</b></td></tr>")
-        lines.append(f"<tr><td><b>Threat</b></td><td>{alert.threat_name or 'Detection'}</td></tr>")
-        lines.append(f"<tr><td><b>Classification</b></td><td>{alert.threat_classification or 'N/A'}</td></tr>")
-        lines.append(f"<tr><td><b>Source</b></td><td>{alert.source.upper()}</td></tr>")
-        lines.append(f"<tr><td><b>Detected</b></td><td>{alert.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}</td></tr>")
+        lines.append('<table style="border-collapse: collapse;">')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>Severity</b></td><td><b>{alert.severity.upper()}</b></td></tr>')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>Threat</b></td><td>{alert.threat_name or "Detection"}</td></tr>')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>Classification</b></td><td>{alert.threat_classification or "N/A"}</td></tr>')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>Source</b></td><td>{alert.source.upper()}</td></tr>')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>Detected</b></td><td>{alert.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")}</td></tr>')
         lines.append("</table>")
 
         # Endpoint Information
         lines.append("<h3>💻 Endpoint Information</h3>")
-        lines.append("<table>")
-        lines.append(f"<tr><td><b>Hostname</b></td><td>{alert.hostname or 'N/A'}</td></tr>")
-        lines.append(f"<tr><td><b>IP Address</b></td><td>{alert.endpoint_ip or 'N/A'}</td></tr>")
-        lines.append(f"<tr><td><b>User</b></td><td>{alert.endpoint_user or 'N/A'}</td></tr>")
-        lines.append(f"<tr><td><b>OS</b></td><td>{alert.endpoint_os or 'N/A'}</td></tr>")
-        lines.append(f"<tr><td><b>Client/Site</b></td><td>{alert.client_name or alert.site_name or 'N/A'}</td></tr>")
+        lines.append('<table style="border-collapse: collapse;">')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>Hostname</b></td><td>{alert.hostname or "N/A"}</td></tr>')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>IP Address</b></td><td>{alert.endpoint_ip or "N/A"}</td></tr>')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>User</b></td><td>{alert.endpoint_user or "N/A"}</td></tr>')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>OS</b></td><td>{alert.endpoint_os or "N/A"}</td></tr>')
+        lines.append(f'<tr><td style="padding-right: 20px;"><b>Client/Site</b></td><td>{alert.client_name or alert.site_name or "N/A"}</td></tr>')
         lines.append("</table>")
 
         # Threat Details
         lines.append("<h3>🎯 Threat Details</h3>")
-        lines.append("<table>")
+        lines.append('<table style="border-collapse: collapse;">')
         if alert.file_path:
-            lines.append(f"<tr><td><b>File Path</b></td><td><code>{alert.file_path}</code></td></tr>")
+            lines.append(f'<tr><td style="padding-right: 20px;"><b>File Path</b></td><td><code>{alert.file_path}</code></td></tr>')
         if alert.file_hash_sha256:
-            lines.append(f"<tr><td><b>SHA256</b></td><td><code>{alert.file_hash_sha256}</code></td></tr>")
+            lines.append(f'<tr><td style="padding-right: 20px;"><b>SHA256</b></td><td><code>{alert.file_hash_sha256}</code></td></tr>')
         if alert.process_name:
-            lines.append(f"<tr><td><b>Process</b></td><td>{alert.process_name}</td></tr>")
+            lines.append(f'<tr><td style="padding-right: 20px;"><b>Process</b></td><td>{alert.process_name}</td></tr>')
         if alert.parent_process_name:
-            lines.append(f"<tr><td><b>Parent Process</b></td><td>{alert.parent_process_name}</td></tr>")
+            lines.append(f'<tr><td style="padding-right: 20px;"><b>Parent Process</b></td><td>{alert.parent_process_name}</td></tr>')
         lines.append("</table>")
 
         if alert.command_line:
@@ -200,11 +200,11 @@ class AlertFormatterService:
         # Network Activity (if present)
         if alert.remote_ip or alert.remote_domain:
             lines.append("<h3>🌐 Network Indicators</h3>")
-            lines.append("<table>")
+            lines.append('<table style="border-collapse: collapse;">')
             if alert.remote_ip:
-                lines.append(f"<tr><td><b>Remote IP</b></td><td><code>{alert.remote_ip}</code></td></tr>")
+                lines.append(f'<tr><td style="padding-right: 20px;"><b>Remote IP</b></td><td><code>{alert.remote_ip}</code></td></tr>')
             if alert.remote_domain:
-                lines.append(f"<tr><td><b>Domain</b></td><td><code>{alert.remote_domain}</code></td></tr>")
+                lines.append(f'<tr><td style="padding-right: 20px;"><b>Domain</b></td><td><code>{alert.remote_domain}</code></td></tr>')
             lines.append("</table>")
 
         # AI Analysis (if present)
