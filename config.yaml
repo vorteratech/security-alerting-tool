@@ -2,19 +2,12 @@
 #
 # This file contains non-sensitive configuration settings.
 # Sensitive values (API keys, secrets) should be set via environment variables.
+#
+# NOTE: Set APP_PASSWORD environment variable in your deployment (docker-compose, TrueNAS, etc.)
 
-# ============================================================
-# WEB UI PASSWORD - SET THIS TO SECURE YOUR APP
-# ============================================================
 security:
-  # SET YOUR PASSWORD HERE:
-  app_password: "CHANGE_ME"
-
-  # Other security settings
   verify_webhooks: true
   encryption_key_env: "MASTER_ENCRYPTION_KEY"
-  session_secret: ""
-# ============================================================
 
 server:
   host: "0.0.0.0"

@@ -90,8 +90,12 @@ def _invalidate_session(token: str) -> None:
 
 
 def get_app_password() -> str:
-    """Get the configured app password."""
+    """Get the configured app password (env var takes precedence over config file)."""
     settings = get_settings()
+    # Environment variable takes precedence
+    if settings.app_password_env:
+        return settings.app_password_env
+    # Fall back to config file
     return settings.security.app_password
 
 

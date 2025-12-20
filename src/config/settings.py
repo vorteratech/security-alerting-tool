@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     teams_bot_app_id: Optional[str] = Field(default=None, alias="TEAMS_BOT_APP_ID")
     teams_bot_app_secret: Optional[str] = Field(default=None, alias="TEAMS_BOT_APP_SECRET")
 
+    # Web UI password (can also be set via environment variable)
+    app_password_env: Optional[str] = Field(default=None, alias="APP_PASSWORD")
+
     # Action callback URL (base URL for Teams bot action callbacks)
     action_callback_base_url: str = Field(
         default="http://localhost:8000/api/v1/actions",

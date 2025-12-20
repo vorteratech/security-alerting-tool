@@ -17,6 +17,11 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # ============================================================
+      # SET YOUR WEB UI PASSWORD HERE
+      # ============================================================
+      - APP_PASSWORD=${APP_PASSWORD:-CHANGE_ME}
+
       # REQUIRED: Master encryption key (64-character hex)
       # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
@@ -55,6 +60,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - APP_PASSWORD=${APP_PASSWORD:-CHANGE_ME}
       - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - S1_WEBHOOK_SECRET=${S1_WEBHOOK_SECRET:-}
       - CS_WEBHOOK_SECRET=${CS_WEBHOOK_SECRET:-}
