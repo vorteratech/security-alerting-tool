@@ -114,6 +114,25 @@ class AlertProcessor:
         self._adapters[source] = adapter
         return adapter
 
+    async def _get_edr_console_urls(self) -> dict[str, str]:
+        """
+        Get console URLs for configured EDR integrations.
+
+        Returns:
+            Dict mapping EDR source to console base URL.
+        """
+        console_urls = {}
+
+        for provider in ["sentinelone", "crowdstrike"]:
+            integration = await self._load_integration("edr", provider)
+            if integration and integration.config_json:
+                config = json.loads(integration.config_json)
+                api_url = config.get("api_url", "")
+                if api_url:
+                    console_urls[provider] = api_url
+
+        return console_urls
+
     async def process_webhook(
         self,
         source: str,
@@ -294,8 +313,10 @@ class AlertProcessor:
         from .alert_formatter import AlertFormatterService
 
         try:
+            edr_console_urls = await self._get_edr_console_urls()
             formatter = AlertFormatterService(
-                action_callback_url=self.settings.action_callback_base_url
+                action_callback_url=self.settings.action_callback_base_url,
+                edr_console_urls=edr_console_urls,
             )
             psa_service = PSAService(self.settings, self.db, formatter)
             result = await psa_service.create_ticket_from_alert(
@@ -340,8 +361,10 @@ class AlertProcessor:
         from .alert_formatter import AlertFormatterService
 
         try:
+            edr_console_urls = await self._get_edr_console_urls()
             formatter = AlertFormatterService(
-                action_callback_url=self.settings.action_callback_base_url
+                action_callback_url=self.settings.action_callback_base_url,
+                edr_console_urls=edr_console_urls,
             )
             notification_service = NotificationService(self.settings, self.db, formatter)
             result = await notification_service.send_alert_notification(

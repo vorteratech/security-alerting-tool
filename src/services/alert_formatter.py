@@ -54,14 +54,46 @@ class AlertFormatterService:
         "info": TicketPriority.LOW,
     }
 
-    def __init__(self, action_callback_url: str = ""):
+    def __init__(
+        self,
+        action_callback_url: str = "",
+        edr_console_urls: Optional[dict[str, str]] = None,
+    ):
         """
         Initialize the formatter service.
 
         Args:
             action_callback_url: Base URL for action callbacks in chat cards.
+            edr_console_urls: Dict mapping EDR source to console base URL.
+                e.g., {"sentinelone": "https://usea1.sentinelone.net"}
         """
         self.action_callback_url = action_callback_url
+        self.edr_console_urls = edr_console_urls or {}
+
+    def _build_edr_alert_url(self, alert: Alert) -> Optional[str]:
+        """
+        Build a URL to view the alert in the EDR console.
+
+        Args:
+            alert: The alert with source and ID info.
+
+        Returns:
+            URL string or None if console URL not configured.
+        """
+        base_url = self.edr_console_urls.get(alert.source.lower(), "")
+        if not base_url:
+            return None
+
+        base_url = base_url.rstrip("/")
+
+        if alert.source.lower() == "sentinelone":
+            # SentinelOne threat URL format
+            return f"{base_url}/threats/{alert.source_alert_id}"
+        elif alert.source.lower() == "crowdstrike":
+            # CrowdStrike detection URL format
+            return f"{base_url}/activity/detections/detail/{alert.source_alert_id}"
+
+        return None
 
     def format_alert(
         self,
@@ -103,7 +135,7 @@ class AlertFormatterService:
         enrichment: Optional[dict[str, Any]] = None,
     ) -> FormattedTicket:
         """
-        Format alert as a PSA ticket.
+        Format alert as a PSA ticket with HTML formatting.
 
         Args:
             alert: The alert to format.
@@ -119,125 +151,102 @@ class AlertFormatterService:
         hostname = alert.hostname or "Unknown Host"
         title = f"{severity_prefix} {threat_name} on {hostname}"
 
-        # Build description
-        description_parts = []
+        # Build description with HTML formatting
+        lines = []
 
-        # Header
-        description_parts.append("=" * 60)
-        description_parts.append("SECURITY ALERT - AUTOMATED DETECTION")
-        description_parts.append("=" * 60)
-        description_parts.append("")
+        # EDR Alert Link (if we have the console URL)
+        edr_url = self._build_edr_alert_url(alert)
+        if edr_url:
+            lines.append(f'<p><b>🔗 <a href="{edr_url}">View Alert in {alert.source.upper()}</a></b></p>')
+            lines.append("<hr>")
 
-        # Alert Details
-        description_parts.append("## Alert Details")
-        description_parts.append(f"- **Source:** {alert.source.upper()}")
-        description_parts.append(f"- **Alert ID:** {alert.source_alert_id}")
-        description_parts.append(f"- **Severity:** {alert.severity.upper()}")
-        description_parts.append(f"- **Classification:** {alert.threat_classification or 'N/A'}")
-        description_parts.append(f"- **Detected At:** {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-        description_parts.append("")
+        # Alert Overview
+        lines.append("<h3>📋 Alert Overview</h3>")
+        lines.append("<table>")
+        lines.append(f"<tr><td><b>Severity</b></td><td><b>{alert.severity.upper()}</b></td></tr>")
+        lines.append(f"<tr><td><b>Threat</b></td><td>{alert.threat_name or 'Detection'}</td></tr>")
+        lines.append(f"<tr><td><b>Classification</b></td><td>{alert.threat_classification or 'N/A'}</td></tr>")
+        lines.append(f"<tr><td><b>Source</b></td><td>{alert.source.upper()}</td></tr>")
+        lines.append(f"<tr><td><b>Detected</b></td><td>{alert.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}</td></tr>")
+        lines.append("</table>")
 
         # Endpoint Information
-        description_parts.append("## Endpoint Information")
-        description_parts.append(f"- **Hostname:** {alert.hostname or 'N/A'}")
-        description_parts.append(f"- **IP Address:** {alert.endpoint_ip or 'N/A'}")
-        description_parts.append(f"- **User:** {alert.endpoint_user or 'N/A'}")
-        description_parts.append(f"- **Operating System:** {alert.endpoint_os or 'N/A'}")
-        description_parts.append(f"- **Client/Site:** {alert.client_name or alert.site_name or 'N/A'}")
-        description_parts.append("")
+        lines.append("<h3>💻 Endpoint Information</h3>")
+        lines.append("<table>")
+        lines.append(f"<tr><td><b>Hostname</b></td><td>{alert.hostname or 'N/A'}</td></tr>")
+        lines.append(f"<tr><td><b>IP Address</b></td><td>{alert.endpoint_ip or 'N/A'}</td></tr>")
+        lines.append(f"<tr><td><b>User</b></td><td>{alert.endpoint_user or 'N/A'}</td></tr>")
+        lines.append(f"<tr><td><b>OS</b></td><td>{alert.endpoint_os or 'N/A'}</td></tr>")
+        lines.append(f"<tr><td><b>Client/Site</b></td><td>{alert.client_name or alert.site_name or 'N/A'}</td></tr>")
+        lines.append("</table>")
 
         # Threat Details
-        description_parts.append("## Threat Details")
-        description_parts.append(f"- **Threat Name:** {alert.threat_name or 'N/A'}")
-
+        lines.append("<h3>🎯 Threat Details</h3>")
+        lines.append("<table>")
         if alert.file_path:
-            description_parts.append(f"- **File Path:** {alert.file_path}")
-
+            lines.append(f"<tr><td><b>File Path</b></td><td><code>{alert.file_path}</code></td></tr>")
         if alert.file_hash_sha256:
-            description_parts.append(f"- **SHA256 Hash:** {alert.file_hash_sha256}")
+            lines.append(f"<tr><td><b>SHA256</b></td><td><code>{alert.file_hash_sha256}</code></td></tr>")
+        if alert.process_name:
+            lines.append(f"<tr><td><b>Process</b></td><td>{alert.process_name}</td></tr>")
+        if alert.parent_process_name:
+            lines.append(f"<tr><td><b>Parent Process</b></td><td>{alert.parent_process_name}</td></tr>")
+        lines.append("</table>")
 
         if alert.command_line:
-            cmd_display = alert.command_line[:500]
-            if len(alert.command_line) > 500:
-                cmd_display += "..."
-            description_parts.append(f"- **Command Line:** `{cmd_display}`")
-
-        if alert.process_name:
-            description_parts.append(f"- **Process:** {alert.process_name}")
-
-        if alert.parent_process_name:
-            description_parts.append(f"- **Parent Process:** {alert.parent_process_name}")
-        description_parts.append("")
+            cmd_display = alert.command_line[:500] + ("..." if len(alert.command_line) > 500 else "")
+            lines.append(f"<p><b>Command Line:</b></p><pre>{cmd_display}</pre>")
 
         # Network Activity (if present)
         if alert.remote_ip or alert.remote_domain:
-            description_parts.append("## Network Activity")
+            lines.append("<h3>🌐 Network Indicators</h3>")
+            lines.append("<table>")
             if alert.remote_ip:
-                description_parts.append(f"- **Remote IP:** {alert.remote_ip}")
+                lines.append(f"<tr><td><b>Remote IP</b></td><td><code>{alert.remote_ip}</code></td></tr>")
             if alert.remote_domain:
-                description_parts.append(f"- **Domain:** {alert.remote_domain}")
-            description_parts.append("")
+                lines.append(f"<tr><td><b>Domain</b></td><td><code>{alert.remote_domain}</code></td></tr>")
+            lines.append("</table>")
 
         # AI Analysis (if present)
         if ai_analysis:
-            description_parts.append("## AI Analysis")
+            lines.append("<h3>🤖 AI Analysis</h3>")
             if ai_analysis.get("summary"):
-                description_parts.append(f"**Summary:** {ai_analysis['summary']}")
-                description_parts.append("")
+                lines.append(f"<p>{ai_analysis['summary']}</p>")
 
             if ai_analysis.get("severity_assessment"):
-                description_parts.append(f"**AI Severity Assessment:** {ai_analysis['severity_assessment'].upper()}")
+                lines.append(f"<p><b>AI Severity:</b> {ai_analysis['severity_assessment'].upper()} ")
                 confidence = ai_analysis.get("confidence", 0)
-                description_parts.append(f"**Confidence:** {confidence}%")
-                description_parts.append("")
+                lines.append(f"(<b>Confidence:</b> {confidence}%)</p>")
 
             if ai_analysis.get("immediate_actions"):
-                description_parts.append("**Immediate Actions Required:**")
-                for i, action in enumerate(ai_analysis["immediate_actions"][:5], 1):
-                    description_parts.append(f"{i}. {action}")
-                description_parts.append("")
+                lines.append("<p><b>⚠️ Immediate Actions:</b></p><ol>")
+                for action in ai_analysis["immediate_actions"][:5]:
+                    lines.append(f"<li>{action}</li>")
+                lines.append("</ol>")
 
             if ai_analysis.get("recommended_actions"):
-                description_parts.append("**Recommended Actions:**")
-                for i, action in enumerate(ai_analysis["recommended_actions"][:5], 1):
-                    description_parts.append(f"{i}. {action}")
-                description_parts.append("")
-
-            if ai_analysis.get("investigation_steps"):
-                description_parts.append("**Investigation Steps:**")
-                for i, step in enumerate(ai_analysis["investigation_steps"][:5], 1):
-                    description_parts.append(f"{i}. {step}")
-                description_parts.append("")
+                lines.append("<p><b>📋 Recommended Actions:</b></p><ol>")
+                for action in ai_analysis["recommended_actions"][:5]:
+                    lines.append(f"<li>{action}</li>")
+                lines.append("</ol>")
 
         # Threat Intelligence (if present)
         if enrichment and enrichment.get("results"):
-            description_parts.append("## Threat Intelligence")
-
+            lines.append("<h3>🔍 Threat Intelligence</h3>")
             for provider, data in enrichment["results"].items():
-                description_parts.append(f"### {provider.title()}")
+                lines.append(f"<p><b>{provider.title()}:</b> ")
                 if data.get("is_malicious"):
-                    description_parts.append(f"**Status:** MALICIOUS")
-                if data.get("severity"):
-                    description_parts.append(f"**Severity:** {data['severity'].upper()}")
+                    lines.append("<span style='color:red'><b>MALICIOUS</b></span> ")
                 if data.get("summary"):
-                    description_parts.append(f"**Details:** {data['summary']}")
-                if data.get("tags"):
-                    description_parts.append(f"**Tags:** {', '.join(data['tags'][:10])}")
-                description_parts.append("")
-
-        # Raw Data Reference
-        description_parts.append("## Raw Data")
-        description_parts.append(f"- **EDR Alert ID:** {alert.source_alert_id}")
-        if alert.agent_id:
-            description_parts.append(f"- **Agent ID:** {alert.agent_id}")
-        description_parts.append("")
+                    lines.append(f"{data['summary']}")
+                lines.append("</p>")
 
         # Footer
-        description_parts.append("-" * 60)
-        description_parts.append("This ticket was automatically created by the Security Alerting System.")
-        description_parts.append("Please investigate and take appropriate action.")
+        lines.append("<hr>")
+        lines.append(f"<p><small>Alert ID: {alert.source_alert_id} | Agent: {alert.agent_id or 'N/A'}</small></p>")
+        lines.append("<p><small><i>Auto-generated by Security Alerting System</i></small></p>")
 
-        description = "\n".join(description_parts)
+        description = "\n".join(lines)
 
         # Determine priority
         priority = self.SEVERITY_TO_PRIORITY.get(
