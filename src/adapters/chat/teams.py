@@ -382,34 +382,104 @@ class TeamsAdapter(BaseChatAdapter):
             "low": "00FF00",
             "info": "0076D7",
         }
+        severity_emoji = {
+            "critical": "🔴",
+            "high": "🟠",
+            "medium": "🟡",
+            "low": "🟢",
+            "info": "🔵",
+        }
         theme_color = severity_colors.get(card.severity.lower(), "0076D7")
+        emoji = severity_emoji.get(card.severity.lower(), "⚪")
 
-        facts = [
+        sections = []
+
+        # Main header section with endpoint info
+        endpoint_facts = [
             {"name": "Hostname", "value": card.hostname or "N/A"},
             {"name": "IP Address", "value": card.endpoint_ip or "N/A"},
             {"name": "User", "value": card.endpoint_user or "N/A"},
-            {"name": "Threat", "value": card.threat_name or "N/A"},
-            {"name": "Severity", "value": card.severity.upper()},
         ]
+        if card.endpoint_os:
+            endpoint_facts.append({"name": "OS", "value": card.endpoint_os})
+        if card.client_name:
+            endpoint_facts.append({"name": "Client", "value": card.client_name})
 
+        sections.append({
+            "activityTitle": f"{emoji} {card.title}",
+            "activitySubtitle": f"**{card.severity.upper()}** | {card.source.upper()} | {card.source_alert_id}",
+            "facts": endpoint_facts,
+            "markdown": True,
+        })
+
+        # Threat details section
+        threat_facts = [
+            {"name": "Threat Name", "value": card.threat_name or "N/A"},
+        ]
+        if card.threat_classification:
+            threat_facts.append({"name": "Classification", "value": card.threat_classification})
+        if card.file_path:
+            # Truncate long paths
+            path = card.file_path if len(card.file_path) <= 60 else "..." + card.file_path[-57:]
+            threat_facts.append({"name": "File Path", "value": f"`{path}`"})
         if card.file_hash:
-            facts.append({"name": "File Hash", "value": card.file_hash[:16] + "..."})
+            threat_facts.append({"name": "SHA256", "value": f"`{card.file_hash[:32]}...`"})
+        if card.command_line:
+            # Truncate long command lines
+            cmd = card.command_line if len(card.command_line) <= 80 else card.command_line[:77] + "..."
+            threat_facts.append({"name": "Command", "value": f"`{cmd}`"})
 
-        if card.ticket_id:
-            facts.append({"name": "Ticket", "value": card.ticket_id})
+        sections.append({
+            "title": "Threat Details",
+            "facts": threat_facts,
+            "markdown": True,
+        })
 
-        sections = [
-            {
-                "activityTitle": card.title,
-                "activitySubtitle": f"Source: {card.source.upper()} | Alert ID: {card.source_alert_id}",
-                "facts": facts,
+        # Network section (if applicable)
+        if card.remote_ip or card.remote_domain:
+            network_facts = []
+            if card.remote_ip:
+                network_facts.append({"name": "Remote IP", "value": f"`{card.remote_ip}`"})
+            if card.remote_domain:
+                network_facts.append({"name": "Domain", "value": f"`{card.remote_domain}`"})
+            sections.append({
+                "title": "Network Indicators",
+                "facts": network_facts,
                 "markdown": True,
-            }
-        ]
+            })
 
+        # Threat Intelligence section (if available)
+        if card.threat_intel_summary:
+            sections.append({
+                "title": "🔍 Threat Intelligence",
+                "text": card.threat_intel_summary[:400] + ("..." if len(card.threat_intel_summary) > 400 else ""),
+                "markdown": True,
+            })
+
+        # AI Analysis section (if available)
         if card.ai_summary:
             sections.append({
+                "title": "🤖 AI Analysis",
                 "text": card.ai_summary[:500] + ("..." if len(card.ai_summary) > 500 else ""),
+                "markdown": True,
+            })
+
+        # AI Recommendations (if available)
+        if card.ai_recommendations:
+            recommendations = "\n".join([f"• {rec}" for rec in card.ai_recommendations[:5]])
+            sections.append({
+                "title": "📋 Recommended Actions",
+                "text": recommendations,
+                "markdown": True,
+            })
+
+        # Ticket link section
+        if card.ticket_id:
+            ticket_text = f"**Ticket:** {card.ticket_id}"
+            if card.ticket_url:
+                ticket_text = f"**Ticket:** [{card.ticket_id}]({card.ticket_url})"
+            sections.append({
+                "text": ticket_text,
                 "markdown": True,
             })
 
@@ -417,7 +487,7 @@ class TeamsAdapter(BaseChatAdapter):
             "@type": "MessageCard",
             "@context": "http://schema.org/extensions",
             "themeColor": theme_color,
-            "summary": card.title,
+            "summary": f"{emoji} {card.title}",
             "sections": sections,
         }
 
