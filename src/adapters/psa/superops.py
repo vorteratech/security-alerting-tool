@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 class SuperOpsAdapter(BasePSAAdapter):
     """
-    SuperOps PSA API adapter.
+    SuperOps PSA API adapter using GraphQL.
 
     Supports:
     - Ticket creation
@@ -27,50 +27,46 @@ class SuperOpsAdapter(BasePSAAdapter):
     - Ticket closure
     """
 
+    # GraphQL endpoint
+    GRAPHQL_URL = "https://api.superops.ai/msp"
+
     def __init__(self, api_key: str, api_url: str, **kwargs):
         """
         Initialize the SuperOps adapter.
 
         Args:
             api_key: SuperOps API key.
-            api_url: SuperOps API URL (e.g., https://api.superops.ai).
+            api_url: SuperOps API URL (not used - GraphQL endpoint is fixed).
             **kwargs: Additional config including:
+                - subdomain: Customer subdomain (required)
                 - default_client_id: Default client for tickets
-                - default_assignee: Default technician to assign
-                - ticket_type: Type of ticket to create
         """
         super().__init__(api_key, api_url, **kwargs)
+        self.subdomain = kwargs.get("subdomain", "")
         self.default_client_id = kwargs.get("default_client_id", "")
-        self.default_assignee = kwargs.get("default_assignee", "")
-        self.ticket_type = kwargs.get("ticket_type", "incident")
         self._client: Optional[httpx.AsyncClient] = None
 
     @property
     def provider_name(self) -> str:
         return "superops"
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self.api_url,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                timeout=30.0,
-            )
-        return self._client
+    def _get_headers(self) -> dict[str, str]:
+        """Get headers for GraphQL requests."""
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "CustomerSubDomain": self.subdomain,
+        }
 
     def _map_priority(self, priority: TicketPriority) -> str:
         """Map internal priority to SuperOps priority."""
         mapping = {
-            TicketPriority.CRITICAL: "critical",
-            TicketPriority.HIGH: "high",
-            TicketPriority.MEDIUM: "medium",
-            TicketPriority.LOW: "low",
+            TicketPriority.CRITICAL: "CRITICAL",
+            TicketPriority.HIGH: "HIGH",
+            TicketPriority.MEDIUM: "MEDIUM",
+            TicketPriority.LOW: "LOW",
         }
-        return mapping.get(priority, "medium")
+        return mapping.get(priority, "MEDIUM")
 
     def _map_severity_to_priority(self, severity: str) -> TicketPriority:
         """Map alert severity to ticket priority."""
@@ -92,7 +88,7 @@ class SuperOpsAdapter(BasePSAAdapter):
         client_id: Optional[str] = None,
     ) -> TicketResult:
         """
-        Create a new ticket in SuperOps.
+        Create a new ticket in SuperOps via GraphQL.
 
         Args:
             alert: The alert to create a ticket for.
@@ -104,76 +100,97 @@ class SuperOpsAdapter(BasePSAAdapter):
         Returns:
             TicketResult with created ticket details.
         """
-        try:
-            client = await self._get_client()
-
-            # Build ticket payload
-            payload = {
-                "subject": title,
-                "description": description,
-                "priority": self._map_priority(priority),
-                "type": self.ticket_type,
-                "source": "api",
-                "tags": ["security-alert", f"edr-{alert.source}"],
-            }
-
-            # Add client if specified
-            if client_id or self.default_client_id:
-                payload["client_id"] = client_id or self.default_client_id
-
-            # Add assignee if configured
-            if self.default_assignee:
-                payload["assignee"] = self.default_assignee
-
-            # Add custom fields for alert tracking
-            payload["custom_fields"] = {
-                "edr_source": alert.source,
-                "edr_alert_id": alert.source_alert_id,
-                "hostname": alert.hostname,
-                "threat_name": alert.threat_name,
-            }
-
-            response = await client.post("/v1/tickets", json=payload)
-            response.raise_for_status()
-
-            data = response.json()
-            ticket_data = data.get("data", data)
-
-            ticket_id = str(ticket_data.get("id", ""))
-            ticket_number = ticket_data.get("ticket_number", ticket_data.get("number", ""))
-
-            logger.info(
-                "Created SuperOps ticket",
-                ticket_id=ticket_id,
-                ticket_number=ticket_number,
-                alert_id=alert.source_alert_id,
-            )
-
-            return TicketResult(
-                ticket_id=ticket_id,
-                ticket_number=str(ticket_number),
-                ticket_url=f"{self.api_url.replace('/api', '')}/tickets/{ticket_id}",
-                success=True,
-                action="created",
-                title=title,
-                priority=self._map_priority(priority),
-                status="new",
-                client_name=alert.client_name,
-                created_at=datetime.utcnow(),
-                raw_response=data,
-            )
-
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                "Failed to create SuperOps ticket",
-                status_code=e.response.status_code,
-                error=str(e),
-            )
+        if not self.subdomain:
             return TicketResult(
                 ticket_id="",
                 success=False,
-                error=f"HTTP {e.response.status_code}: {str(e)}",
+                error="SuperOps subdomain not configured",
             )
+
+        target_client_id = client_id or self.default_client_id
+        if not target_client_id:
+            return TicketResult(
+                ticket_id="",
+                success=False,
+                error="No client ID configured for SuperOps tickets",
+            )
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                graphql_mutation = {
+                    "query": """
+                        mutation createTicket($input: CreateTicketInput!) {
+                            createTicket(input: $input) {
+                                ticketId
+                                displayId
+                            }
+                        }
+                    """,
+                    "variables": {
+                        "input": {
+                            "subject": title,
+                            "description": description,
+                            "priority": self._map_priority(priority),
+                            "source": "INTEGRATION",
+                            "requestType": "INCIDENT",
+                            "client": {
+                                "accountId": target_client_id
+                            }
+                        }
+                    }
+                }
+
+                response = await client.post(
+                    self.GRAPHQL_URL,
+                    headers=self._get_headers(),
+                    json=graphql_mutation,
+                )
+
+                if response.status_code != 200:
+                    return TicketResult(
+                        ticket_id="",
+                        success=False,
+                        error=f"SuperOps API error ({response.status_code}): {response.text[:200]}",
+                    )
+
+                data = response.json()
+
+                # Check for GraphQL errors
+                if "errors" in data:
+                    first_error = data["errors"][0]
+                    error_msg = first_error.get("message") or str(first_error)
+                    return TicketResult(
+                        ticket_id="",
+                        success=False,
+                        error=f"SuperOps GraphQL error: {error_msg}",
+                    )
+
+                # Extract ticket info
+                ticket = data.get("data", {}).get("createTicket", {})
+                ticket_id = ticket.get("ticketId", "")
+                display_id = ticket.get("displayId", "")
+
+                logger.info(
+                    "Created SuperOps ticket",
+                    ticket_id=ticket_id,
+                    display_id=display_id,
+                    alert_id=alert.source_alert_id,
+                )
+
+                return TicketResult(
+                    ticket_id=ticket_id,
+                    ticket_number=str(display_id),
+                    ticket_url=f"https://{self.subdomain}.superops.ai/tickets/{ticket_id}",
+                    success=True,
+                    action="created",
+                    title=title,
+                    priority=self._map_priority(priority),
+                    status="new",
+                    client_name=alert.client_name,
+                    created_at=datetime.utcnow(),
+                    raw_response=data,
+                )
+
         except Exception as e:
             logger.error("Failed to create SuperOps ticket", error=str(e))
             return TicketResult(
@@ -189,200 +206,78 @@ class SuperOpsAdapter(BasePSAAdapter):
         priority: Optional[TicketPriority] = None,
         assigned_to: Optional[str] = None,
     ) -> TicketResult:
-        """
-        Update an existing ticket.
-
-        Args:
-            ticket_id: The ticket ID.
-            status: New status.
-            priority: New priority.
-            assigned_to: New assignee.
-
-        Returns:
-            TicketResult with updated ticket.
-        """
-        try:
-            client = await self._get_client()
-
-            payload = {}
-            if status:
-                status_map = {
-                    TicketStatus.NEW: "new",
-                    TicketStatus.OPEN: "open",
-                    TicketStatus.IN_PROGRESS: "in_progress",
-                    TicketStatus.PENDING: "pending",
-                    TicketStatus.RESOLVED: "resolved",
-                    TicketStatus.CLOSED: "closed",
-                }
-                payload["status"] = status_map.get(status, "open")
-
-            if priority:
-                payload["priority"] = self._map_priority(priority)
-
-            if assigned_to:
-                payload["assignee"] = assigned_to
-
-            if not payload:
-                return TicketResult(
-                    ticket_id=ticket_id,
-                    success=True,
-                    action="no_changes",
-                )
-
-            response = await client.patch(f"/v1/tickets/{ticket_id}", json=payload)
-            response.raise_for_status()
-
-            data = response.json()
-
-            logger.info("Updated SuperOps ticket", ticket_id=ticket_id)
-
-            return TicketResult(
-                ticket_id=ticket_id,
-                success=True,
-                action="updated",
-                updated_at=datetime.utcnow(),
-                raw_response=data,
-            )
-
-        except Exception as e:
-            logger.error("Failed to update SuperOps ticket", ticket_id=ticket_id, error=str(e))
-            return TicketResult(
-                ticket_id=ticket_id,
-                success=False,
-                error=str(e),
-            )
+        """Update ticket - not yet implemented for GraphQL."""
+        logger.warning("update_ticket not yet implemented for SuperOps GraphQL")
+        return TicketResult(
+            ticket_id=ticket_id,
+            success=False,
+            error="Not implemented",
+        )
 
     async def add_note(
         self,
         ticket_id: str,
         note: TicketNote,
     ) -> bool:
-        """
-        Add a note to a ticket.
-
-        Args:
-            ticket_id: The ticket ID.
-            note: The note to add.
-
-        Returns:
-            True if successful.
-        """
-        try:
-            client = await self._get_client()
-
-            payload = {
-                "content": note.content,
-                "is_private": note.is_internal,
-                "author": note.author,
-            }
-
-            response = await client.post(f"/v1/tickets/{ticket_id}/notes", json=payload)
-            response.raise_for_status()
-
-            logger.info("Added note to SuperOps ticket", ticket_id=ticket_id)
-            return True
-
-        except Exception as e:
-            logger.error("Failed to add note to ticket", ticket_id=ticket_id, error=str(e))
-            return False
+        """Add note - not yet implemented for GraphQL."""
+        logger.warning("add_note not yet implemented for SuperOps GraphQL")
+        return False
 
     async def close_ticket(
         self,
         ticket_id: str,
         resolution_note: str = "",
     ) -> TicketResult:
-        """
-        Close a ticket.
-
-        Args:
-            ticket_id: The ticket ID.
-            resolution_note: Optional resolution note.
-
-        Returns:
-            TicketResult with closed ticket.
-        """
-        try:
-            # Add resolution note if provided
-            if resolution_note:
-                await self.add_note(
-                    ticket_id,
-                    TicketNote(
-                        content=f"Resolution: {resolution_note}",
-                        is_internal=False,
-                    ),
-                )
-
-            # Update status to closed
-            return await self.update_ticket(ticket_id, status=TicketStatus.CLOSED)
-
-        except Exception as e:
-            logger.error("Failed to close ticket", ticket_id=ticket_id, error=str(e))
-            return TicketResult(
-                ticket_id=ticket_id,
-                success=False,
-                error=str(e),
-            )
+        """Close ticket - not yet implemented for GraphQL."""
+        logger.warning("close_ticket not yet implemented for SuperOps GraphQL")
+        return TicketResult(
+            ticket_id=ticket_id,
+            success=False,
+            error="Not implemented",
+        )
 
     async def get_ticket(self, ticket_id: str) -> Optional[TicketResult]:
-        """
-        Get ticket details.
-
-        Args:
-            ticket_id: The ticket ID.
-
-        Returns:
-            TicketResult with ticket details, or None if not found.
-        """
-        try:
-            client = await self._get_client()
-
-            response = await client.get(f"/v1/tickets/{ticket_id}")
-
-            if response.status_code == 404:
-                return None
-
-            response.raise_for_status()
-            data = response.json()
-            ticket_data = data.get("data", data)
-
-            return TicketResult(
-                ticket_id=ticket_id,
-                ticket_number=str(ticket_data.get("ticket_number", "")),
-                success=True,
-                title=ticket_data.get("subject", ""),
-                priority=ticket_data.get("priority", ""),
-                status=ticket_data.get("status", ""),
-                assigned_to=ticket_data.get("assignee", ""),
-                raw_response=data,
-            )
-
-        except Exception as e:
-            logger.error("Failed to get ticket", ticket_id=ticket_id, error=str(e))
-            return None
+        """Get ticket - not yet implemented for GraphQL."""
+        logger.warning("get_ticket not yet implemented for SuperOps GraphQL")
+        return None
 
     async def test_connectivity(self) -> bool:
-        """
-        Test API connectivity to SuperOps.
+        """Test API connectivity to SuperOps via GraphQL."""
+        if not self.subdomain:
+            raise ValueError("SuperOps subdomain not configured")
 
-        Returns:
-            True if connection is successful.
-        """
         try:
-            client = await self._get_client()
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                graphql_query = {
+                    "query": """
+                        {
+                            getTicketList(input: { page: 1, pageSize: 1 }) {
+                                tickets {
+                                    ticketId
+                                }
+                            }
+                        }
+                    """
+                }
 
-            # Try to list tickets (limit 1) to test auth
-            response = await client.get("/v1/tickets", params={"limit": 1})
-            response.raise_for_status()
+                response = await client.post(
+                    self.GRAPHQL_URL,
+                    headers=self._get_headers(),
+                    json=graphql_query,
+                )
+                response.raise_for_status()
 
-            logger.info("SuperOps connectivity test passed")
-            return True
+                data = response.json()
+                if "errors" in data:
+                    raise ValueError(f"GraphQL error: {data['errors']}")
+
+                logger.info("SuperOps connectivity test passed")
+                return True
 
         except Exception as e:
             logger.error("SuperOps connectivity test failed", error=str(e))
             raise
 
     async def close(self) -> None:
-        """Clean up HTTP client."""
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
+        """Clean up resources."""
+        pass  # No persistent client to close

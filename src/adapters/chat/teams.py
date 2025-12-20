@@ -407,9 +407,9 @@ class TeamsAdapter(BaseChatAdapter):
             }
         ]
 
-        if card.description:
+        if card.ai_summary:
             sections.append({
-                "text": card.description[:500] + ("..." if len(card.description) > 500 else ""),
+                "text": card.ai_summary[:500] + ("..." if len(card.ai_summary) > 500 else ""),
                 "markdown": True,
             })
 

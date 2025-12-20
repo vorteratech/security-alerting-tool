@@ -108,9 +108,8 @@ class PSAService:
             adapter = SuperOpsAdapter(
                 api_key=api_key,
                 api_url=config.get("api_url", "https://api.superops.ai"),
+                subdomain=config.get("subdomain", ""),
                 default_client_id=config.get("default_client_id", ""),
-                default_assignee=config.get("default_assignee", ""),
-                ticket_type=config.get("ticket_type", "incident"),
             )
         else:
             logger.error(f"Unknown PSA provider: {provider}")
