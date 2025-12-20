@@ -54,6 +54,35 @@ header h1 {
     font-size: 1.1rem;
 }
 
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: left;
+}
+
+.header-content > div:first-child {
+    flex: 1;
+    text-align: center;
+}
+
+.logout-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.logout-btn:hover {
+    color: var(--danger-color);
+    border-color: var(--danger-color);
+    background: rgba(220, 38, 38, 0.1);
+}
+
 /* Notification */
 .notification {
     padding: 1rem;

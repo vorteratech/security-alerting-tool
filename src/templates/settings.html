@@ -9,8 +9,17 @@
 <body>
     <div class="container">
         <header>
-            <h1>Security Alerting Tool</h1>
-            <p class="subtitle">Integration Settings</p>
+            <div class="header-content">
+                <div>
+                    <h1>Security Alerting Tool</h1>
+                    <p class="subtitle">Integration Settings</p>
+                </div>
+                <form action="/logout" method="POST" id="logout-form" style="display: none;">
+                    <button type="submit" class="logout-btn" title="Sign Out">
+                        &#128682; Sign Out
+                    </button>
+                </form>
+            </div>
         </header>
 
         <div class="notification" id="notification"></div>
@@ -415,5 +424,16 @@
     </div>
 
     <script src="/static/js/settings.js"></script>
+    <script>
+        // Check auth status and show logout button if authenticated
+        fetch('/auth/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.authenticated) {
+                    document.getElementById('logout-form').style.display = 'block';
+                }
+            })
+            .catch(err => console.log('Auth check:', err));
+    </script>
 </body>
 </html>

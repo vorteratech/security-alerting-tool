@@ -36,6 +36,8 @@ class SecuritySettings(BaseModel):
 
     verify_webhooks: bool = True
     encryption_key_env: str = "MASTER_ENCRYPTION_KEY"
+    app_password: str = ""  # Password for web UI access
+    session_secret: str = ""  # Secret for signing session cookies
 
 
 class DefaultsSettings(BaseModel):

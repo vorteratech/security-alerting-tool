@@ -24,6 +24,13 @@ security:
   # Environment variable name containing the master encryption key
   encryption_key_env: "MASTER_ENCRYPTION_KEY"
 
+  # Password for web UI access (leave empty to disable auth)
+  # IMPORTANT: Change this to a strong password in production!
+  app_password: ""
+
+  # Secret for signing session cookies (auto-generated if empty)
+  session_secret: ""
+
 # Default providers (can be changed via API at runtime)
 defaults:
   ai_provider: "claude"

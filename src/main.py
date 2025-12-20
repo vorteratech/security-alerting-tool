@@ -11,16 +11,66 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from .api import webhooks, actions, settings_api, teams_bot
+from .api import webhooks, actions, settings_api, teams_bot, auth
+from .api.auth import is_auth_enabled, check_auth
 from .config.logging import get_logger, setup_logging
 from .config.settings import get_settings
 from .database.connection import close_db, init_db
 
 # Initialize logger
 logger = get_logger(__name__)
+
+# Paths that don't require authentication
+PUBLIC_PATHS = {
+    "/health",
+    "/login",
+    "/webhooks",
+    "/static",
+    "/favicon.ico",
+}
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to enforce authentication on protected routes."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        # Check if path is public (doesn't require auth)
+        is_public = False
+        for public_path in PUBLIC_PATHS:
+            if path == public_path or path.startswith(f"{public_path}/"):
+                is_public = True
+                break
+
+        # If auth is not enabled, allow all requests
+        if not is_auth_enabled():
+            return await call_next(request)
+
+        # If path is public, allow
+        if is_public:
+            return await call_next(request)
+
+        # Check authentication via session cookie
+        session_token = request.cookies.get("session")
+        is_authenticated = await check_auth(session_token)
+
+        if is_authenticated:
+            return await call_next(request)
+
+        # Not authenticated - redirect to login for browser, 401 for API
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            return RedirectResponse(url="/login", status_code=303)
+
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authentication required"}
+        )
 
 
 @asynccontextmanager
@@ -83,7 +133,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Authentication middleware (must be added after CORS)
+    app.add_middleware(AuthMiddleware)
+
     # Include routers
+    app.include_router(auth.router, tags=["Auth"])
     app.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
     app.include_router(actions.router, prefix="/actions", tags=["Actions"])
     app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
@@ -96,6 +150,18 @@ def create_app() -> FastAPI:
 
     # Template directory for HTML pages
     templates_dir = Path(__file__).parent / "templates"
+
+    # Login page route
+    @app.get("/login", tags=["Auth"])
+    async def login_page():
+        """Serve the login page."""
+        template_path = templates_dir / "login.html"
+        if template_path.exists():
+            return FileResponse(str(template_path), media_type="text/html")
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Login page not found"}
+        )
 
     # Settings page route
     @app.get("/", tags=["UI"])
