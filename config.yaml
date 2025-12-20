@@ -3,6 +3,19 @@
 # This file contains non-sensitive configuration settings.
 # Sensitive values (API keys, secrets) should be set via environment variables.
 
+# ============================================================
+# WEB UI PASSWORD - SET THIS TO SECURE YOUR APP
+# ============================================================
+security:
+  # SET YOUR PASSWORD HERE:
+  app_password: "CHANGE_ME"
+
+  # Other security settings
+  verify_webhooks: true
+  encryption_key_env: "MASTER_ENCRYPTION_KEY"
+  session_secret: ""
+# ============================================================
+
 server:
   host: "0.0.0.0"
   port: 8000
@@ -10,28 +23,11 @@ server:
 
 logging:
   level: "INFO"
-  # format: "json" for production, "text" for development
   format: "text"
 
 database:
-  # SQLite database for settings and audit log
   path: "./data/settings.db"
 
-security:
-  # Verify webhook signatures from EDR platforms
-  verify_webhooks: true
-
-  # Environment variable name containing the master encryption key
-  encryption_key_env: "MASTER_ENCRYPTION_KEY"
-
-  # Password for web UI access (leave empty to disable auth)
-  # IMPORTANT: Change this to a strong password in production!
-  app_password: ""
-
-  # Secret for signing session cookies (auto-generated if empty)
-  session_secret: ""
-
-# Default providers (can be changed via API at runtime)
 defaults:
   ai_provider: "claude"
   threat_intel_providers:
