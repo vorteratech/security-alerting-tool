@@ -317,6 +317,7 @@ class IntegrationTester:
                         "description": f"This is an automated test ticket created by the Security Alerting Tool to verify PSA connectivity.\\n\\nThis ticket can be safely deleted.\\n\\nTest performed at: {datetime.utcnow().isoformat()} UTC",
                         "priority": "LOW",
                         "source": "INTEGRATION",
+                        "requestType": "INCIDENT",
                         "client": {
                             "accountId": default_client_id
                         }
