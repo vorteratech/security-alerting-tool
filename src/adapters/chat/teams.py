@@ -473,23 +473,31 @@ class TeamsAdapter(BaseChatAdapter):
                 "markdown": True,
             })
 
-        # Ticket link section
-        if card.ticket_id:
-            ticket_text = f"**Ticket:** {card.ticket_id}"
-            if card.ticket_url:
-                ticket_text = f"**Ticket:** [{card.ticket_id}]({card.ticket_url})"
-            sections.append({
-                "text": ticket_text,
-                "markdown": True,
+        # Build potential actions (clickable buttons)
+        potential_actions = []
+
+        # Add ticket button if we have a URL
+        if card.ticket_id and card.ticket_url:
+            potential_actions.append({
+                "@type": "OpenUri",
+                "name": f"View Ticket #{card.ticket_id}",
+                "targets": [
+                    {"os": "default", "uri": card.ticket_url}
+                ]
             })
 
-        return {
+        message_card = {
             "@type": "MessageCard",
             "@context": "http://schema.org/extensions",
             "themeColor": theme_color,
             "summary": f"{emoji} {card.title}",
             "sections": sections,
         }
+
+        if potential_actions:
+            message_card["potentialAction"] = potential_actions
+
+        return message_card
 
     async def send_alert(
         self,
