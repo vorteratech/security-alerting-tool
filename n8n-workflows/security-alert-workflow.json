@@ -1,0 +1,571 @@
+{
+  "name": "Security Alert Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "security-alert",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "security-alert-webhook"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.threatInfo }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "object",
+                      "operation": "exists"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "SentinelOne"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.metadata }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "object",
+                      "operation": "exists"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "CrowdStrike"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-edr",
+      "name": "Detect EDR Source",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Parse SentinelOne webhook payload and normalize to common format\nconst webhook = $input.all()[0].json.body;\n\n// SentinelOne sends threats in different structures depending on webhook type\nconst threat = webhook.threatInfo || webhook;\nconst agent = webhook.agentRealtimeInfo || webhook.agentDetectionInfo || {};\n\nconst normalizedAlert = {\n  // Source identification\n  source: 'sentinelone',\n  source_alert_id: threat.threatId || threat.id || '',\n  timestamp: threat.createdAt || threat.identifiedAt || new Date().toISOString(),\n  \n  // Severity mapping (SentinelOne uses confidenceLevel and severity)\n  severity: mapSeverity(threat.confidenceLevel, threat.severity),\n  confidence: threat.confidenceLevel || 'medium',\n  \n  // Endpoint information\n  hostname: agent.agentComputerName || agent.computerName || '',\n  endpoint_ip: agent.agentIpAddress || agent.externalIp || '',\n  endpoint_os: agent.agentOsType || agent.osType || '',\n  endpoint_user: agent.loggedInUserName || threat.username || '',\n  \n  // Site/Client information\n  site_name: agent.siteName || '',\n  site_id: agent.siteId || '',\n  account_name: agent.accountName || '',\n  \n  // Threat details\n  threat_name: threat.threatName || threat.classification || '',\n  threat_classification: threat.classification || threat.classificationSource || '',\n  threat_description: threat.description || '',\n  \n  // MITRE ATT&CK\n  mitre_tactics: extractMitreTactics(threat),\n  mitre_techniques: extractMitreTechniques(threat),\n  \n  // File information\n  file_path: threat.filePath || '',\n  file_hash_sha256: threat.sha256 || threat.fileContentHash || '',\n  file_hash_sha1: threat.sha1 || '',\n  file_hash_md5: threat.md5 || '',\n  file_size: threat.fileSize || null,\n  file_signed: threat.signedStatus === 'signed',\n  \n  // Process information\n  process_name: threat.processName || threat.originator || '',\n  process_id: threat.pid || null,\n  command_line: threat.commandLineArguments || threat.originatorProcess || '',\n  parent_process_name: threat.parentProcessName || '',\n  parent_command_line: threat.parentProcessCommandLine || '',\n  \n  // Network information (if available)\n  remote_ip: threat.networkInfo?.remoteIp || '',\n  remote_domain: threat.networkInfo?.remoteDomain || '',\n  remote_port: threat.networkInfo?.remotePort || null,\n  remote_url: threat.networkInfo?.url || '',\n  \n  // Raw data for reference\n  raw_payload: webhook\n};\n\nfunction mapSeverity(confidence, severity) {\n  // Map SentinelOne confidence/severity to standard levels\n  const severityMap = {\n    'malicious': 'critical',\n    'suspicious': 'high',\n    'n/a': 'medium'\n  };\n  \n  if (severity && severityMap[severity.toLowerCase()]) {\n    return severityMap[severity.toLowerCase()];\n  }\n  \n  const confidenceMap = {\n    'malicious': 'critical',\n    'suspicious': 'high',\n    'n/a': 'medium'\n  };\n  \n  return confidenceMap[confidence?.toLowerCase()] || 'medium';\n}\n\nfunction extractMitreTactics(threat) {\n  if (threat.mitreTactics) {\n    return Array.isArray(threat.mitreTactics) ? threat.mitreTactics : [threat.mitreTactics];\n  }\n  if (threat.indicators) {\n    return threat.indicators\n      .filter(i => i.tactics)\n      .flatMap(i => i.tactics);\n  }\n  return [];\n}\n\nfunction extractMitreTechniques(threat) {\n  if (threat.mitreTechniques) {\n    return Array.isArray(threat.mitreTechniques) ? threat.mitreTechniques : [threat.mitreTechniques];\n  }\n  if (threat.indicators) {\n    return threat.indicators\n      .filter(i => i.techniques)\n      .flatMap(i => i.techniques);\n  }\n  return [];\n}\n\nreturn [{ json: normalizedAlert }];"
+      },
+      "id": "parse-sentinelone",
+      "name": "Parse SentinelOne",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Parse CrowdStrike webhook payload and normalize to common format\nconst webhook = $input.all()[0].json.body;\n\n// CrowdStrike detection structure\nconst detection = webhook.event || webhook.detection || webhook;\nconst metadata = webhook.metadata || {};\nconst device = detection.device || detection.host || {};\n\nconst normalizedAlert = {\n  // Source identification\n  source: 'crowdstrike',\n  source_alert_id: detection.detection_id || detection.composite_id || metadata.eventId || '',\n  timestamp: detection.created_timestamp || detection.timestamp || new Date().toISOString(),\n  \n  // Severity mapping\n  severity: mapSeverity(detection.severity, detection.max_severity_displayname),\n  confidence: detection.confidence?.toString() || 'medium',\n  \n  // Endpoint information\n  hostname: device.hostname || device.device_id || '',\n  endpoint_ip: device.local_ip || device.external_ip || '',\n  endpoint_os: device.os_version || device.platform_name || '',\n  endpoint_user: detection.user_name || device.machine_user || '',\n  \n  // Organization information\n  site_name: device.site_name || device.groups?.[0] || '',\n  site_id: device.device_id || '',\n  account_name: metadata.customerIDString || '',\n  \n  // Threat details\n  threat_name: detection.detect_name || detection.tactic || '',\n  threat_classification: detection.technique || detection.pattern_disposition_details?.detect_name || '',\n  threat_description: detection.detect_description || detection.description || '',\n  \n  // MITRE ATT&CK\n  mitre_tactics: extractMitreTactics(detection),\n  mitre_techniques: extractMitreTechniques(detection),\n  \n  // File information\n  file_path: detection.filepath || detection.filename || '',\n  file_hash_sha256: detection.sha256 || detection.ioc_value || '',\n  file_hash_sha1: detection.sha1 || '',\n  file_hash_md5: detection.md5 || '',\n  file_size: detection.file_size || null,\n  file_signed: detection.file_signed || false,\n  \n  // Process information\n  process_name: detection.process_name || detection.filename || '',\n  process_id: detection.process_id || detection.local_process_id || null,\n  command_line: detection.cmdline || detection.command_line || '',\n  parent_process_name: detection.parent_process_name || '',\n  parent_command_line: detection.parent_cmdline || detection.parent_command_line || '',\n  \n  // Network information\n  remote_ip: detection.remote_address || detection.ioc_value || '',\n  remote_domain: detection.domain || '',\n  remote_port: detection.remote_port || null,\n  remote_url: detection.url || '',\n  \n  // Raw data for reference\n  raw_payload: webhook\n};\n\nfunction mapSeverity(severityNum, severityName) {\n  // CrowdStrike uses numeric severity (0-100) and display names\n  if (severityName) {\n    const nameMap = {\n      'critical': 'critical',\n      'high': 'high',\n      'medium': 'medium',\n      'low': 'low',\n      'informational': 'info'\n    };\n    return nameMap[severityName.toLowerCase()] || 'medium';\n  }\n  \n  if (typeof severityNum === 'number') {\n    if (severityNum >= 80) return 'critical';\n    if (severityNum >= 60) return 'high';\n    if (severityNum >= 40) return 'medium';\n    if (severityNum >= 20) return 'low';\n    return 'info';\n  }\n  \n  return 'medium';\n}\n\nfunction extractMitreTactics(detection) {\n  const tactics = [];\n  if (detection.tactic) tactics.push(detection.tactic);\n  if (detection.tactics && Array.isArray(detection.tactics)) {\n    tactics.push(...detection.tactics);\n  }\n  if (detection.behaviors) {\n    detection.behaviors.forEach(b => {\n      if (b.tactic) tactics.push(b.tactic);\n    });\n  }\n  return [...new Set(tactics)];\n}\n\nfunction extractMitreTechniques(detection) {\n  const techniques = [];\n  if (detection.technique) techniques.push(detection.technique);\n  if (detection.technique_id) techniques.push(detection.technique_id);\n  if (detection.behaviors) {\n    detection.behaviors.forEach(b => {\n      if (b.technique) techniques.push(b.technique);\n      if (b.technique_id) techniques.push(b.technique_id);\n    });\n  }\n  return [...new Set(techniques)];\n}\n\nreturn [{ json: normalizedAlert }];"
+      },
+      "id": "parse-crowdstrike",
+      "name": "Parse CrowdStrike",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "merge-parsers",
+      "name": "Merge Parsed Alerts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Extract IOCs (Indicators of Compromise) from the normalized alert\nconst alert = $input.all()[0].json;\n\nconst iocs = {\n  hashes: [],\n  ips: [],\n  domains: [],\n  urls: []\n};\n\n// Collect file hashes\nif (alert.file_hash_sha256) iocs.hashes.push({ type: 'sha256', value: alert.file_hash_sha256 });\nif (alert.file_hash_sha1) iocs.hashes.push({ type: 'sha1', value: alert.file_hash_sha1 });\nif (alert.file_hash_md5) iocs.hashes.push({ type: 'md5', value: alert.file_hash_md5 });\n\n// Collect IPs (filter out private IPs)\nconst privateIpRegex = /^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.|127\\.|0\\.)/;\nif (alert.remote_ip && !privateIpRegex.test(alert.remote_ip)) {\n  iocs.ips.push(alert.remote_ip);\n}\n\n// Collect domains\nif (alert.remote_domain) {\n  iocs.domains.push(alert.remote_domain);\n}\n\n// Collect URLs\nif (alert.remote_url) {\n  iocs.urls.push(alert.remote_url);\n}\n\n// Pass through the alert with extracted IOCs\nreturn [{ \n  json: {\n    alert: alert,\n    iocs: iocs,\n    // Primary hash for lookups (prefer SHA256)\n    primary_hash: alert.file_hash_sha256 || alert.file_hash_sha1 || alert.file_hash_md5 || null,\n    primary_ip: iocs.ips[0] || null,\n    primary_domain: iocs.domains[0] || null\n  }\n}];"
+      },
+      "id": "extract-iocs",
+      "name": "Extract IOCs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.virustotal.com/api/v3/files/{{ $json.primary_hash }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "virustotal-hash",
+      "name": "VirusTotal Hash Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 100],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "virustotal-api",
+          "name": "VirusTotal API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://www.virustotal.com/api/v3/ip_addresses/{{ $json.primary_ip }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "virustotal-ip",
+      "name": "VirusTotal IP Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 240],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "virustotal-api",
+          "name": "VirusTotal API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://otx.alienvault.com/api/v1/indicators/file/{{ $json.primary_hash }}/general",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "alienvault-hash",
+      "name": "AlienVault Hash Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 380],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "alienvault-api",
+          "name": "AlienVault API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://otx.alienvault.com/api/v1/indicators/IPv4/{{ $json.primary_ip }}/general",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "alienvault-ip",
+      "name": "AlienVault IP Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 520],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "alienvault-api",
+          "name": "AlienVault API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Aggregate enrichment results from all threat intel sources\nconst items = $input.all();\n\n// Get the original alert data (passed through from Extract IOCs)\nconst originalData = items[0].json;\nconst alert = originalData.alert || originalData;\nconst iocs = originalData.iocs || { hashes: [], ips: [], domains: [], urls: [] };\n\n// Initialize enrichment results\nconst enrichment = {\n  virustotal: {\n    hash: null,\n    ip: null\n  },\n  alienvault: {\n    hash: null,\n    ip: null\n  },\n  summary: {\n    is_malicious: false,\n    highest_threat_score: 0,\n    detection_count: 0,\n    total_engines: 0,\n    threat_names: [],\n    malware_families: [],\n    tags: []\n  }\n};\n\n// Process VirusTotal hash results\nif (items[1]?.json?.data) {\n  const vt = items[1].json.data;\n  const stats = vt.attributes?.last_analysis_stats || {};\n  enrichment.virustotal.hash = {\n    found: true,\n    malicious: stats.malicious || 0,\n    suspicious: stats.suspicious || 0,\n    harmless: stats.harmless || 0,\n    undetected: stats.undetected || 0,\n    total: (stats.malicious || 0) + (stats.suspicious || 0) + (stats.harmless || 0) + (stats.undetected || 0),\n    file_type: vt.attributes?.type_description || '',\n    file_name: vt.attributes?.meaningful_name || '',\n    reputation: vt.attributes?.reputation || 0,\n    tags: vt.attributes?.tags || []\n  };\n  \n  // Update summary\n  enrichment.summary.detection_count += stats.malicious || 0;\n  enrichment.summary.total_engines += enrichment.virustotal.hash.total;\n  if (stats.malicious > 0) enrichment.summary.is_malicious = true;\n  if (vt.attributes?.tags) enrichment.summary.tags.push(...vt.attributes.tags);\n}\n\n// Process VirusTotal IP results\nif (items[2]?.json?.data) {\n  const vt = items[2].json.data;\n  const stats = vt.attributes?.last_analysis_stats || {};\n  enrichment.virustotal.ip = {\n    found: true,\n    malicious: stats.malicious || 0,\n    suspicious: stats.suspicious || 0,\n    harmless: stats.harmless || 0,\n    country: vt.attributes?.country || '',\n    as_owner: vt.attributes?.as_owner || '',\n    reputation: vt.attributes?.reputation || 0\n  };\n  \n  if (stats.malicious > 0) enrichment.summary.is_malicious = true;\n}\n\n// Process AlienVault hash results\nif (items[3]?.json?.pulse_info) {\n  const av = items[3].json;\n  enrichment.alienvault.hash = {\n    found: true,\n    pulse_count: av.pulse_info?.count || 0,\n    pulses: (av.pulse_info?.pulses || []).slice(0, 5).map(p => ({\n      name: p.name,\n      tags: p.tags,\n      targeted_countries: p.targeted_countries,\n      malware_families: p.malware_families\n    })),\n    file_type: av.type || '',\n    file_class: av.file_class || ''\n  };\n  \n  if (av.pulse_info?.count > 0) {\n    enrichment.summary.is_malicious = true;\n    // Extract malware families from pulses\n    av.pulse_info.pulses?.forEach(p => {\n      if (p.malware_families) {\n        enrichment.summary.malware_families.push(...p.malware_families);\n      }\n    });\n  }\n}\n\n// Process AlienVault IP results\nif (items[4]?.json?.pulse_info) {\n  const av = items[4].json;\n  enrichment.alienvault.ip = {\n    found: true,\n    pulse_count: av.pulse_info?.count || 0,\n    reputation: av.reputation || 0,\n    country: av.country_name || '',\n    city: av.city || '',\n    asn: av.asn || ''\n  };\n  \n  if (av.pulse_info?.count > 0) {\n    enrichment.summary.is_malicious = true;\n  }\n}\n\n// Deduplicate summary arrays\nenrichment.summary.threat_names = [...new Set(enrichment.summary.threat_names)];\nenrichment.summary.malware_families = [...new Set(enrichment.summary.malware_families)];\nenrichment.summary.tags = [...new Set(enrichment.summary.tags)];\n\n// Calculate threat score (0-100)\nlet threatScore = 0;\nif (enrichment.virustotal.hash?.malicious) {\n  threatScore = Math.min(100, (enrichment.virustotal.hash.malicious / enrichment.virustotal.hash.total) * 100);\n}\nif (enrichment.alienvault.hash?.pulse_count > 0) {\n  threatScore = Math.max(threatScore, Math.min(100, enrichment.alienvault.hash.pulse_count * 10));\n}\nenrichment.summary.highest_threat_score = Math.round(threatScore);\n\nreturn [{\n  json: {\n    alert: alert,\n    iocs: iocs,\n    enrichment: enrichment\n  }\n}];"
+      },
+      "id": "merge-enrichment",
+      "name": "Merge Enrichment Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1380, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-3-haiku-20240307\",\n  \"max_tokens\": 2048,\n  \"system\": \"You are an expert security analyst specializing in endpoint detection and response (EDR), threat hunting, and incident response. Your role is to analyze security alerts and provide actionable recommendations.\\n\\nWhen analyzing alerts, you should:\\n1. Assess the severity and potential impact\\n2. Identify the attack technique and stage (using MITRE ATT&CK framework)\\n3. Provide specific, actionable recommendations\\n4. Suggest investigation steps\\n5. Identify potential false positive indicators\\n\\nFormat your response as JSON with these fields:\\n- summary: Brief 1-2 sentence summary\\n- severity_assessment: Your assessed severity (critical/high/medium/low/info)\\n- threat_type: Type of threat (malware, ransomware, lateral_movement, exfiltration, etc.)\\n- attack_stage: MITRE ATT&CK stage (initial_access, execution, persistence, etc.)\\n- is_likely_false_positive: boolean\\n- false_positive_reason: If likely FP, explain why\\n- immediate_actions: Array of urgent actions to take now\\n- recommended_actions: Array of follow-up actions\\n- investigation_steps: Array of investigation steps\\n- mitre_mapping: Object with tactic and technique IDs\\n- potential_impact: Description of what could happen if not addressed\\n- ioc_reputation_summary: Summary of threat intel findings\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyze this security alert and provide your assessment:\\n\\n## Alert Details\\n- Source: {{ $json.alert.source }}\\n- Severity: {{ $json.alert.severity }}\\n- Hostname: {{ $json.alert.hostname }}\\n- User: {{ $json.alert.endpoint_user }}\\n- Threat Name: {{ $json.alert.threat_name }}\\n- Classification: {{ $json.alert.threat_classification }}\\n\\n## Process Information\\n- Process: {{ $json.alert.process_name }}\\n- Command Line: {{ $json.alert.command_line }}\\n- Parent Process: {{ $json.alert.parent_process_name }}\\n- File Path: {{ $json.alert.file_path }}\\n\\n## File Hashes\\n- SHA256: {{ $json.alert.file_hash_sha256 }}\\n- SHA1: {{ $json.alert.file_hash_sha1 }}\\n- MD5: {{ $json.alert.file_hash_md5 }}\\n\\n## Network Activity\\n- Remote IP: {{ $json.alert.remote_ip }}\\n- Remote Domain: {{ $json.alert.remote_domain }}\\n- Remote URL: {{ $json.alert.remote_url }}\\n\\n## Threat Intelligence Enrichment\\n{{ JSON.stringify($json.enrichment, null, 2) }}\\n\\n## MITRE ATT&CK (from EDR)\\n- Tactics: {{ $json.alert.mitre_tactics }}\\n- Techniques: {{ $json.alert.mitre_techniques }}\\n\\nProvide your analysis as JSON.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-analysis",
+      "name": "Claude AI Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1600, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "anthropic-api",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Parse Claude's response and combine with alert data\nconst items = $input.all();\nconst enrichedData = items[0].json;\nconst claudeResponse = items[1]?.json;\n\nlet aiAnalysis = {\n  raw_response: '',\n  parsed: null,\n  error: null\n};\n\ntry {\n  if (claudeResponse?.content?.[0]?.text) {\n    const responseText = claudeResponse.content[0].text;\n    aiAnalysis.raw_response = responseText;\n    \n    // Try to parse JSON from the response\n    // Claude might wrap it in markdown code blocks\n    let jsonText = responseText;\n    const jsonMatch = responseText.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\n    if (jsonMatch) {\n      jsonText = jsonMatch[1];\n    }\n    \n    aiAnalysis.parsed = JSON.parse(jsonText.trim());\n  } else if (claudeResponse?.error) {\n    aiAnalysis.error = claudeResponse.error.message || 'Unknown API error';\n  }\n} catch (e) {\n  aiAnalysis.error = `Failed to parse AI response: ${e.message}`;\n}\n\n// Combine everything for ticket creation\nconst combinedData = {\n  alert: enrichedData.alert,\n  iocs: enrichedData.iocs,\n  enrichment: enrichedData.enrichment,\n  ai_analysis: aiAnalysis.parsed || {\n    summary: 'AI analysis unavailable',\n    severity_assessment: enrichedData.alert.severity,\n    immediate_actions: ['Review alert manually'],\n    recommended_actions: ['Investigate endpoint activity']\n  },\n  ai_raw: aiAnalysis.raw_response,\n  ai_error: aiAnalysis.error\n};\n\nreturn [{ json: combinedData }];"
+      },
+      "id": "parse-ai-response",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.superops.ai/msp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "CustomerSubDomain",
+              "value": "={{ $credentials.customerSubDomain }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"mutation CreateTicket($input: CreateTicketInput!) { createTicket(input: $input) { ticket { id ticketNumber subject status priority } } }\",\n  \"variables\": {\n    \"input\": {\n      \"subject\": \"[{{ $json.alert.severity.toUpperCase() }}] Security Alert: {{ $json.alert.threat_name }} on {{ $json.alert.hostname }}\",\n      \"description\": \"<h2>Security Alert Details</h2><p><strong>Source:</strong> {{ $json.alert.source }}<br><strong>Alert ID:</strong> {{ $json.alert.source_alert_id }}<br><strong>Timestamp:</strong> {{ $json.alert.timestamp }}</p><h3>Endpoint Information</h3><p><strong>Hostname:</strong> {{ $json.alert.hostname }}<br><strong>IP Address:</strong> {{ $json.alert.endpoint_ip }}<br><strong>User:</strong> {{ $json.alert.endpoint_user }}<br><strong>OS:</strong> {{ $json.alert.endpoint_os }}</p><h3>Threat Details</h3><p><strong>Threat Name:</strong> {{ $json.alert.threat_name }}<br><strong>Classification:</strong> {{ $json.alert.threat_classification }}<br><strong>Severity:</strong> {{ $json.alert.severity }}</p><h3>Process Information</h3><p><strong>Process:</strong> {{ $json.alert.process_name }}<br><strong>Command Line:</strong> {{ $json.alert.command_line }}<br><strong>File Path:</strong> {{ $json.alert.file_path }}</p><h3>AI Analysis Summary</h3><p>{{ $json.ai_analysis.summary }}</p><h3>Recommended Actions</h3><ul>{{ $json.ai_analysis.immediate_actions.map(a => '<li>' + a + '</li>').join('') }}</ul><h3>Threat Intelligence</h3><p><strong>Malicious:</strong> {{ $json.enrichment.summary.is_malicious }}<br><strong>Threat Score:</strong> {{ $json.enrichment.summary.highest_threat_score }}/100<br><strong>Detections:</strong> {{ $json.enrichment.summary.detection_count }}/{{ $json.enrichment.summary.total_engines }} engines</p>\",\n      \"priority\": \"{{ $json.alert.severity === 'critical' ? 'URGENT' : $json.alert.severity === 'high' ? 'HIGH' : $json.alert.severity === 'medium' ? 'MEDIUM' : 'LOW' }}\",\n      \"type\": \"INCIDENT\"\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "create-superops-ticket",
+      "name": "Create SuperOps Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2040, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "superops-api",
+          "name": "SuperOps API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Combine ticket response with alert data for Teams notification\nconst items = $input.all();\nconst alertData = items[0].json;\nconst ticketResponse = items[1]?.json;\n\nlet ticketInfo = {\n  id: null,\n  number: null,\n  url: null\n};\n\n// Extract ticket info from SuperOps response\nif (ticketResponse?.data?.createTicket?.ticket) {\n  const ticket = ticketResponse.data.createTicket.ticket;\n  ticketInfo.id = ticket.id;\n  ticketInfo.number = ticket.ticketNumber;\n  // SuperOps ticket URL format - adjust subdomain as needed\n  ticketInfo.url = `https://app.superops.ai/tickets/${ticket.id}`;\n}\n\n// Build severity color for Teams card\nconst severityColors = {\n  critical: 'attention',  // Red\n  high: 'warning',        // Orange/Yellow\n  medium: 'accent',       // Blue\n  low: 'good',            // Green\n  info: 'default'\n};\n\nconst severityEmoji = {\n  critical: '🔴',\n  high: '🟠',\n  medium: '🟡',\n  low: '🟢',\n  info: 'ℹ️'\n};\n\nconst severity = alertData.alert.severity?.toLowerCase() || 'medium';\n\nreturn [{\n  json: {\n    ...alertData,\n    ticket: ticketInfo,\n    teams_format: {\n      color: severityColors[severity] || 'default',\n      emoji: severityEmoji[severity] || '⚠️'\n    }\n  }\n}];"
+      },
+      "id": "prepare-teams-message",
+      "name": "Prepare Teams Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2260, 300]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "messageType": "adaptiveCard",
+        "adaptiveCardContent": "={\n  \"$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\",\n  \"type\": \"AdaptiveCard\",\n  \"version\": \"1.4\",\n  \"body\": [\n    {\n      \"type\": \"Container\",\n      \"style\": \"{{ $json.teams_format.color }}\",\n      \"items\": [\n        {\n          \"type\": \"TextBlock\",\n          \"size\": \"Large\",\n          \"weight\": \"Bolder\",\n          \"text\": \"{{ $json.teams_format.emoji }} Security Alert: {{ $json.alert.threat_name }}\"\n        }\n      ]\n    },\n    {\n      \"type\": \"FactSet\",\n      \"facts\": [\n        {\n          \"title\": \"Severity\",\n          \"value\": \"{{ $json.alert.severity.toUpperCase() }}\"\n        },\n        {\n          \"title\": \"Source\",\n          \"value\": \"{{ $json.alert.source }}\"\n        },\n        {\n          \"title\": \"Hostname\",\n          \"value\": \"{{ $json.alert.hostname }}\"\n        },\n        {\n          \"title\": \"User\",\n          \"value\": \"{{ $json.alert.endpoint_user || 'N/A' }}\"\n        },\n        {\n          \"title\": \"IP Address\",\n          \"value\": \"{{ $json.alert.endpoint_ip || 'N/A' }}\"\n        }\n      ]\n    },\n    {\n      \"type\": \"TextBlock\",\n      \"text\": \"**Classification:** {{ $json.alert.threat_classification }}\",\n      \"wrap\": true\n    },\n    {\n      \"type\": \"TextBlock\",\n      \"text\": \"**Process:** {{ $json.alert.process_name }}\",\n      \"wrap\": true\n    },\n    {\n      \"type\": \"TextBlock\",\n      \"text\": \"**File Path:** {{ $json.alert.file_path }}\",\n      \"wrap\": true,\n      \"isSubtle\": true\n    },\n    {\n      \"type\": \"Container\",\n      \"style\": \"emphasis\",\n      \"items\": [\n        {\n          \"type\": \"TextBlock\",\n          \"text\": \"**AI Analysis**\",\n          \"weight\": \"Bolder\"\n        },\n        {\n          \"type\": \"TextBlock\",\n          \"text\": \"{{ $json.ai_analysis.summary }}\",\n          \"wrap\": true\n        }\n      ]\n    },\n    {\n      \"type\": \"FactSet\",\n      \"facts\": [\n        {\n          \"title\": \"Threat Score\",\n          \"value\": \"{{ $json.enrichment.summary.highest_threat_score }}/100\"\n        },\n        {\n          \"title\": \"Detections\",\n          \"value\": \"{{ $json.enrichment.summary.detection_count }}/{{ $json.enrichment.summary.total_engines }} engines\"\n        },\n        {\n          \"title\": \"Malicious\",\n          \"value\": \"{{ $json.enrichment.summary.is_malicious ? 'Yes' : 'No' }}\"\n        }\n      ]\n    }\n  ],\n  \"actions\": [\n    {\n      \"type\": \"Action.OpenUrl\",\n      \"title\": \"View Ticket\",\n      \"url\": \"{{ $json.ticket.url }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "teams-notification",
+      "name": "Send Teams Notification",
+      "type": "n8n-nodes-base.microsoftTeams",
+      "typeVersion": 2,
+      "position": [2480, 300],
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "teams-oauth",
+          "name": "Microsoft Teams"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "success-response",
+      "name": "Success",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2700, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Detect EDR Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect EDR Source": {
+      "main": [
+        [
+          {
+            "node": "Parse SentinelOne",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse CrowdStrike",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse SentinelOne": {
+      "main": [
+        [
+          {
+            "node": "Merge Parsed Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse CrowdStrike": {
+      "main": [
+        [
+          {
+            "node": "Merge Parsed Alerts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Parsed Alerts": {
+      "main": [
+        [
+          {
+            "node": "Extract IOCs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract IOCs": {
+      "main": [
+        [
+          {
+            "node": "VirusTotal Hash Lookup",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "VirusTotal IP Lookup",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AlienVault Hash Lookup",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AlienVault IP Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VirusTotal Hash Lookup": {
+      "main": [
+        [
+          {
+            "node": "Merge Enrichment Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VirusTotal IP Lookup": {
+      "main": [
+        [
+          {
+            "node": "Merge Enrichment Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AlienVault Hash Lookup": {
+      "main": [
+        [
+          {
+            "node": "Merge Enrichment Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AlienVault IP Lookup": {
+      "main": [
+        [
+          {
+            "node": "Merge Enrichment Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Enrichment Results": {
+      "main": [
+        [
+          {
+            "node": "Claude AI Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude AI Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Create SuperOps Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create SuperOps Ticket": {
+      "main": [
+        [
+          {
+            "node": "Prepare Teams Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Teams Message": {
+      "main": [
+        [
+          {
+            "node": "Send Teams Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Teams Notification": {
+      "main": [
+        [
+          {
+            "node": "Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "Security",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
