@@ -173,7 +173,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.claudeRequestBody) }}"
+        "jsonBody": "={{ $json.claudeRequestBody }}"
       },
       "id": "a1b2c3d4-0001-0001-0001-000000000010",
       "name": "Claude Analysis",
