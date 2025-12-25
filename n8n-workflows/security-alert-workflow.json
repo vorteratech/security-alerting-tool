@@ -240,10 +240,19 @@
     },
     {
       "parameters": {
-        "resource": "chatMessage",
+        "resource": "channelMessage",
         "operation": "create",
-        "chatId": "={{ $vars.TEAMS_CHANNEL_ID }}",
-        "messageType": "text",
+        "teamId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "channelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "contentType": "text",
         "message": "={{ $json.message_title }}\n\n{{ $json.message_body }}"
       },
       "id": "a1b2c3d4-0001-0001-0001-000000000014",
