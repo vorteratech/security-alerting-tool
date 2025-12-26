@@ -1,0 +1,263 @@
+{
+  "name": "CrowdStrike Detection Polling",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "cs-poll-001",
+      "name": "Every 2 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.us-2.crowdstrike.com/oauth2/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET"
+      },
+      "id": "cs-poll-002",
+      "name": "Get CrowdStrike Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate time filter for last 2 minutes\nconst now = new Date();\nconst twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);\nconst filterTime = twoMinutesAgo.toISOString();\n\nreturn [{\n  json: {\n    access_token: $input.first().json.access_token,\n    filter_time: filterTime\n  }\n}];"
+      },
+      "id": "cs-poll-003",
+      "name": "Prepare Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.us-2.crowdstrike.com/detects/queries/detects/v1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter",
+              "value": "=created_timestamp:>'{{ $json.filter_time }}'"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        }
+      },
+      "id": "cs-poll-004",
+      "name": "Get Detection IDs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if we have any detections\nconst response = $input.first().json;\nconst resources = response.resources || [];\n\nif (resources.length === 0) {\n  // No new detections, stop workflow\n  return [];\n}\n\n// Get the token from earlier node\nconst tokenNode = $('Prepare Query').first();\nconst accessToken = tokenNode.json.access_token;\n\nreturn [{\n  json: {\n    detection_ids: resources,\n    access_token: accessToken\n  }\n}];"
+      },
+      "id": "cs-poll-005",
+      "name": "Check for Detections",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.us-2.crowdstrike.com/detects/entities/summaries/GET/v1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"ids\": {{ JSON.stringify($json.detection_ids) }} }"
+      },
+      "id": "cs-poll-006",
+      "name": "Get Detection Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split detections into individual items for processing\nconst response = $input.first().json;\nconst detections = response.resources || [];\n\nreturn detections.map(detection => ({\n  json: detection\n}));"
+      },
+      "id": "cs-poll-007",
+      "name": "Split Detections",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format detection for the security alert webhook\nconst detection = $input.first().json;\nconst device = detection.device || {};\nconst behaviors = detection.behaviors || [];\nconst firstBehavior = behaviors[0] || {};\n\nconst payload = {\n  metadata: {\n    eventType: 'DetectionSummaryEvent',\n    customerIDString: detection.cid || ''\n  },\n  event: {\n    detection_id: detection.detection_id || '',\n    created_timestamp: detection.created_timestamp || '',\n    severity: detection.max_severity || 0,\n    max_severity_displayname: detection.max_severity_displayname || '',\n    confidence: detection.max_confidence || 0,\n    detect_name: firstBehavior.display_name || firstBehavior.technique || detection.max_severity_displayname || '',\n    detect_description: firstBehavior.description || '',\n    technique: firstBehavior.technique || '',\n    tactic: firstBehavior.tactic || '',\n    filepath: firstBehavior.filepath || '',\n    filename: firstBehavior.filename || '',\n    sha256: firstBehavior.sha256 || '',\n    sha1: firstBehavior.sha1 || '',\n    md5: firstBehavior.md5 || '',\n    cmdline: firstBehavior.cmdline || '',\n    command_line: firstBehavior.cmdline || '',\n    user_name: firstBehavior.user_name || '',\n    process_name: firstBehavior.filename || '',\n    process_id: firstBehavior.process_id || '',\n    parent_process_name: firstBehavior.parent_details?.parent_process_name || '',\n    parent_cmdline: firstBehavior.parent_details?.parent_cmdline || ''\n  },\n  device: {\n    hostname: device.hostname || '',\n    device_id: device.device_id || '',\n    site_name: (device.groups && device.groups[0]) || '',\n    groups: device.groups || [],\n    local_ip: device.local_ip || '',\n    external_ip: device.external_ip || '',\n    os_version: device.os_version || '',\n    platform_name: device.platform_name || '',\n    machine_user: device.machine_user || ''\n  }\n};\n\nreturn [{ json: payload }];"
+      },
+      "id": "cs-poll-008",
+      "name": "Format for Webhook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/security-alert",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}"
+      },
+      "id": "cs-poll-009",
+      "name": "Send to Security Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1760, 300]
+    }
+  ],
+  "connections": {
+    "Every 2 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get CrowdStrike Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get CrowdStrike Token": {
+      "main": [
+        [
+          {
+            "node": "Prepare Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Query": {
+      "main": [
+        [
+          {
+            "node": "Get Detection IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Detection IDs": {
+      "main": [
+        [
+          {
+            "node": "Check for Detections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Detections": {
+      "main": [
+        [
+          {
+            "node": "Get Detection Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Detection Details": {
+      "main": [
+        [
+          {
+            "node": "Split Detections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Detections": {
+      "main": [
+        [
+          {
+            "node": "Format for Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for Webhook": {
+      "main": [
+        [
+          {
+            "node": "Send to Security Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
