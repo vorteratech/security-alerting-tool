@@ -20,25 +20,12 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.us-2.crowdstrike.com/oauth2/token",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/x-www-form-urlencoded"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "string",
-        "body": "client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET"
+        "jsCode": "// Get CrowdStrike OAuth2 Token\nconst clientId = 'YOUR_CLIENT_ID_HERE';\nconst clientSecret = 'YOUR_CLIENT_SECRET_HERE';\n\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://api.us-2.crowdstrike.com/oauth2/token',\n  headers: {\n    'Content-Type': 'application/x-www-form-urlencoded',\n  },\n  body: `client_id=${clientId}&client_secret=${clientSecret}`,\n  returnFullResponse: true\n});\n\nreturn [{\n  json: {\n    access_token: response.body.access_token,\n    expires_in: response.body.expires_in\n  }\n}];"
       },
       "id": "cs-poll-002",
       "name": "Get CrowdStrike Token",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.1,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [220, 300]
     },
     {
@@ -54,7 +41,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "https://api.us-2.crowdstrike.com/detects/queries/detects/v1",
+        "url": "https://api.us-2.crowdstrike.com/alerts/queries/alerts/v2",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -98,7 +85,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.us-2.crowdstrike.com/detects/entities/summaries/GET/v1",
+        "url": "https://api.us-2.crowdstrike.com/alerts/entities/alerts/v2",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -114,7 +101,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"ids\": {{ JSON.stringify($json.detection_ids) }} }"
+        "jsonBody": "={ \"composite_ids\": {{ JSON.stringify($json.detection_ids) }} }"
       },
       "id": "cs-poll-006",
       "name": "Get Detection Details",
@@ -124,23 +111,61 @@
     },
     {
       "parameters": {
-        "jsCode": "// Split detections into individual items for processing\nconst response = $input.first().json;\nconst detections = response.resources || [];\n\nreturn detections.map(detection => ({\n  json: detection\n}));"
+        "jsCode": "// Split detections and extract agent_ids for device lookup\nconst response = $input.first().json;\nconst detections = response.resources || [];\n\n// Get the token\nconst tokenNode = $('Check for Detections').first();\nconst accessToken = tokenNode.json.access_token;\n\n// Extract unique agent_ids\nconst agentIds = [...new Set(detections.map(d => d.agent_id).filter(id => id))];\n\nreturn [{\n  json: {\n    detections: detections,\n    agent_ids: agentIds,\n    access_token: accessToken\n  }\n}];"
       },
       "id": "cs-poll-007",
-      "name": "Split Detections",
+      "name": "Extract Agent IDs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1320, 300]
     },
     {
       "parameters": {
-        "jsCode": "// Format detection for the security alert webhook\nconst detection = $input.first().json;\nconst device = detection.device || {};\nconst behaviors = detection.behaviors || [];\nconst firstBehavior = behaviors[0] || {};\n\nconst payload = {\n  metadata: {\n    eventType: 'DetectionSummaryEvent',\n    customerIDString: detection.cid || ''\n  },\n  event: {\n    detection_id: detection.detection_id || '',\n    created_timestamp: detection.created_timestamp || '',\n    severity: detection.max_severity || 0,\n    max_severity_displayname: detection.max_severity_displayname || '',\n    confidence: detection.max_confidence || 0,\n    detect_name: firstBehavior.display_name || firstBehavior.technique || detection.max_severity_displayname || '',\n    detect_description: firstBehavior.description || '',\n    technique: firstBehavior.technique || '',\n    tactic: firstBehavior.tactic || '',\n    filepath: firstBehavior.filepath || '',\n    filename: firstBehavior.filename || '',\n    sha256: firstBehavior.sha256 || '',\n    sha1: firstBehavior.sha1 || '',\n    md5: firstBehavior.md5 || '',\n    cmdline: firstBehavior.cmdline || '',\n    command_line: firstBehavior.cmdline || '',\n    user_name: firstBehavior.user_name || '',\n    process_name: firstBehavior.filename || '',\n    process_id: firstBehavior.process_id || '',\n    parent_process_name: firstBehavior.parent_details?.parent_process_name || '',\n    parent_cmdline: firstBehavior.parent_details?.parent_cmdline || ''\n  },\n  device: {\n    hostname: device.hostname || '',\n    device_id: device.device_id || '',\n    site_name: (device.groups && device.groups[0]) || '',\n    groups: device.groups || [],\n    local_ip: device.local_ip || '',\n    external_ip: device.external_ip || '',\n    os_version: device.os_version || '',\n    platform_name: device.platform_name || '',\n    machine_user: device.machine_user || ''\n  }\n};\n\nreturn [{ json: payload }];"
+        "method": "POST",
+        "url": "https://api.us-2.crowdstrike.com/devices/entities/devices/v2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"ids\": {{ JSON.stringify($json.agent_ids) }} }"
       },
       "id": "cs-poll-008",
+      "name": "Get Device Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1540, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge device details with detections\nconst deviceResponse = $input.first().json;\nconst devices = deviceResponse.resources || [];\n\n// Get detections from earlier node\nconst extractNode = $('Extract Agent IDs').first();\nconst detections = extractNode.json.detections || [];\n\n// Create device lookup map\nconst deviceMap = {};\nfor (const device of devices) {\n  deviceMap[device.device_id] = device;\n}\n\n// Merge device info into each detection\nconst enrichedDetections = detections.map(detection => {\n  const device = deviceMap[detection.agent_id] || {};\n  return {\n    ...detection,\n    device_info: device\n  };\n});\n\n// Return each detection as separate item\nreturn enrichedDetections.map(detection => ({\n  json: detection\n}));"
+      },
+      "id": "cs-poll-009",
+      "name": "Merge Device Info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format CrowdStrike Alert with Device Info for the security alert webhook\nconst alert = $input.first().json;\nconst device = alert.device_info || {};\nconst incident = alert.incident || {};\n\n// Calculate severity from incident score\nconst score = parseFloat(incident.highest_score) || 0;\nlet severityName = 'info';\nif (score >= 4) severityName = 'critical';\nelse if (score >= 3) severityName = 'high';\nelse if (score >= 2) severityName = 'medium';\nelse if (score >= 1) severityName = 'low';\n\nconst payload = {\n  metadata: {\n    eventType: 'DetectionSummaryEvent',\n    customerIDString: alert.cid || ''\n  },\n  event: {\n    detection_id: alert.composite_id || alert.id || '',\n    created_timestamp: alert.created_timestamp || '',\n    severity: Math.round(score * 20),\n    max_severity_displayname: severityName,\n    confidence: 0,\n    detect_name: alert.type === 'xdr' ? 'XDR Incident' : (alert.name || 'CrowdStrike Alert'),\n    detect_description: 'CrowdStrike ' + (alert.type || 'alert').toUpperCase() + ' - Score: ' + score.toFixed(2),\n    technique: alert.technique || '',\n    tactic: alert.tactic || '',\n    filepath: alert.filepath || '',\n    sha256: alert.sha256 || '',\n    cmdline: alert.cmdline || '',\n    user_name: device.last_login_user || ''\n  },\n  device: {\n    hostname: device.hostname || device.device_id || alert.agent_id || '',\n    device_id: device.device_id || alert.agent_id || '',\n    site_name: (device.groups && device.groups[0]) || '',\n    groups: device.groups || [],\n    local_ip: device.local_ip || '',\n    external_ip: device.external_ip || '',\n    os_version: device.os_version || alert.platform || '',\n    platform_name: device.platform_name || alert.platform || '',\n    machine_domain: device.machine_domain || '',\n    system_manufacturer: device.system_manufacturer || '',\n    system_product_name: device.system_product_name || ''\n  },\n  falcon_host_link: alert.falcon_host_link || ''\n};\n\nreturn [{ json: payload }];"
+      },
+      "id": "cs-poll-010",
       "name": "Format for Webhook",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1540, 300]
+      "position": [1980, 300]
     },
     {
       "parameters": {
@@ -159,11 +184,11 @@
         "specifyBody": "json",
         "jsonBody": "={{ $json }}"
       },
-      "id": "cs-poll-009",
+      "id": "cs-poll-011",
       "name": "Send to Security Webhook",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1760, 300]
+      "position": [2200, 300]
     }
   ],
   "connections": {
@@ -226,14 +251,36 @@
       "main": [
         [
           {
-            "node": "Split Detections",
+            "node": "Extract Agent IDs",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Split Detections": {
+    "Extract Agent IDs": {
+      "main": [
+        [
+          {
+            "node": "Get Device Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Device Details": {
+      "main": [
+        [
+          {
+            "node": "Merge Device Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Device Info": {
       "main": [
         [
           {
